@@ -269,7 +269,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
         printk("Failed to find at least one mmio for \"%s\"\n",
                dev_path(coproc->dev));
         ret = -ENODEV;
-        goto out_free_mmios;
+        goto out;
     }
 
     coproc->mmios = xzalloc_array(struct mmio, num_mmios);
@@ -278,7 +278,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
         printk("Failed to allocate %d mmio(s) for \"%s\"\n", num_mmios,
                dev_path(coproc->dev));
         ret = -ENOMEM;
-        goto out_free_mmios;
+        goto out;
     }
 
     for ( i = 0; i < num_mmios; ++i )
@@ -289,7 +289,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
         {
             printk("Failed to remap IO for \"%s\"\n", dev_path(coproc->dev));
             ret = PTR_ERR(coproc->mmios[i].base);
-            goto out_iounmap_mmios;
+            goto out;
         }
 
         coproc->mmios[i].size = resource_size(res);
@@ -307,7 +307,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
         printk("Failed to find at least one irq for \"%s\"\n",
                dev_path(coproc->dev));
         ret = -ENODEV;
-        goto out_free_irqs;
+        goto out;
     }
 
     coproc->irqs = xzalloc_array(unsigned int, num_irqs);
@@ -316,7 +316,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
         printk("Failed to allocate %d irq(s) for \"%s\"\n", num_irqs,
                dev_path(coproc->dev));
         ret = -ENOMEM;
-        goto out_free_irqs;
+        goto out;
     }
 
     for ( i = 0; i < num_irqs; ++i )
@@ -328,7 +328,7 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
             printk("Failed to get irq index %d for \"%s\"\n", i,
                    dev_path(coproc->dev));
             ret = -ENODEV;
-            goto out_free_irqs;
+            goto out;
         }
         coproc->irqs[i] = irq;
     }
@@ -340,18 +340,8 @@ struct coproc_device *coproc_alloc(struct platform_device *pdev,
 
     return coproc;
 
-out_free_irqs:
-    xfree(coproc->irqs);
-out_iounmap_mmios:
-    for ( i = 0; i < num_mmios; ++i )
-    {
-        if ( !IS_ERR(coproc->mmios[i].base) )
-            iounmap(coproc->mmios[i].base);
-    }
-out_free_mmios:
-    xfree(coproc->mmios);
-    xfree(coproc);
-
+out:
+    coproc_release(coproc);
     return ERR_PTR(ret);
 }
 
@@ -362,7 +352,7 @@ void coproc_release(struct coproc_device *coproc)
     if ( IS_ERR_OR_NULL(coproc) )
         return;
     xfree(coproc->irqs);
-    for ( i = 0; i < coproc->num_mmios; ++i )
+    for ( i = 0; i < coproc->num_mmios; i++ )
     {
         if ( !IS_ERR_OR_NULL(coproc->mmios[i].base) )
             iounmap(coproc->mmios[i].base);
