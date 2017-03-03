@@ -110,8 +110,9 @@ struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
 {
     struct vcoproc_instance *vcoproc = NULL;
     bool_t found = false;
+    unsigned long flags;
 
-    spin_lock(&coproc->vcoprocs_lock);
+    spin_lock_irqsave(&coproc->vcoprocs_lock, flags);
 
     if ( list_empty(&coproc->vcoprocs) )
         goto out;
@@ -126,7 +127,7 @@ struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
     }
 
 out:
-    spin_unlock(&coproc->vcoprocs_lock);
+    spin_unlock_irqrestore(&coproc->vcoprocs_lock, flags);
 
     return found ? vcoproc : NULL;
 }
