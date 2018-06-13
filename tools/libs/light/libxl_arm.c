@@ -35,6 +35,7 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     uint32_t vuart_irq, virtio_irq;
     bool vuart_enabled = false, virtio_enabled = false;
 
+    strncpy(config->arch.dom_name, d_config->c_info.name, 256);
     /*
      * If pl011 vuart is enabled then increment the nr_spis to allow allocation
      * of SPI VIRQ for pl011.
