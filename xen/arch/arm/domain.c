@@ -774,6 +774,9 @@ int arch_domain_create(struct domain *d,
         goto fail;
 #endif
 
+    if (platform_domain_create(d, config))
+        goto fail;
+
     return 0;
 
 fail:
@@ -788,6 +791,7 @@ void arch_domain_destroy(struct domain *d)
 #ifdef CONFIG_HAS_COPROC
     vcoproc_domain_free(d);
 #endif
+    platform_domain_destroy(d);
     /* IOMMU page table is shared with P2M, always call
      * iommu_domain_destroy() before p2m_teardown().
      */

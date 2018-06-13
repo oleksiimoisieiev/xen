@@ -155,9 +155,27 @@ bool platform_device_is_blacklisted(const struct dt_device_node *node)
     return (dt_match_node(blacklist, node) != NULL);
 }
 
-unsigned int arch_get_dma_bitsize(void)
+int platform_domain_create(struct domain *d,
+                           struct xen_domctl_createdomain *config)
 {
-    return ( platform && platform->dma_bitsize ) ? platform->dma_bitsize : 32;
+    if (current->domain == d)
+	    return -EINVAL;
+
+    if (platform && platform->domain_create)
+        return platform->domain_create(d, config);
+
+    return 0;
+}
+
+int platform_domain_destroy(struct domain *d)
+{
+    if (current->domain == d)
+	    return -EINVAL;
+
+    if (platform && platform->domain_destroy)
+        return platform->domain_destroy(d);
+
+    return 0;
 }
 
 /*
