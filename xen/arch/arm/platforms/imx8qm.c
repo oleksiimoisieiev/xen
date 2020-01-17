@@ -22,6 +22,7 @@
 #include <asm/p2m.h>
 #include <asm/platform.h>
 #include <asm/platforms/imx8qm.h>
+#include <asm/smccc.h>
 #include <xen/config.h>
 #include <xen/lib.h>
 #include <xen/vmap.h>
@@ -77,6 +78,45 @@ static const struct dt_device_match imx8qm_blacklist_dev[] __initconst =
     { /* sentinel */ },
 };
 
+static bool imx8qm_smc(struct cpu_user_regs *regs)
+{
+    struct arm_smccc_res res;
+
+    /*
+     * IMX8 firmware is based on SMCCC 1.1. If SMCCC 1.1 is not
+     * available something is wrong, don't try to handle it.
+     */
+
+    if ( !cpus_have_const_cap(ARM_SMCCC_1_1) )
+    {
+        printk_once(XENLOG_WARNING
+                    "IMX8 firmware Error: no SMCCC 1.1 support. Disabling firmware calls\n");
+
+        return false;
+    }
+
+    /*
+     * Forward SIP directly to ATF
+     */
+
+    arm_smccc_1_1_smc(get_user_reg(regs, 0),
+                      get_user_reg(regs, 1),
+                      get_user_reg(regs, 2),
+                      get_user_reg(regs, 3),
+                      get_user_reg(regs, 4),
+                      get_user_reg(regs, 5),
+                      get_user_reg(regs, 6),
+                      get_user_reg(regs, 7),
+                      &res);
+
+    set_user_reg(regs, 0, res.a0);
+    set_user_reg(regs, 1, res.a1);
+    set_user_reg(regs, 2, res.a2);
+    set_user_reg(regs, 3, res.a3);
+
+    return true;
+}
+
 
 PLATFORM_START(imx8qm, "i.MX 8")
     .compatible = imx8qm_dt_compat,
@@ -85,6 +125,7 @@ PLATFORM_START(imx8qm, "i.MX 8")
     .reset = imx8qm_system_reset,
     .poweroff = imx8qm_system_off,
     .blacklist_dev = imx8qm_blacklist_dev,
+    .smc = imx8qm_smc,
 PLATFORM_END
 
 /*
