@@ -40,6 +40,7 @@
 #include <asm/vtimer.h>
 
 #include "vuart.h"
+#include "coproc/coproc.h"
 
 DEFINE_PER_CPU(struct vcpu *, curr_vcpu);
 
@@ -768,6 +769,10 @@ int arch_domain_create(struct domain *d,
         goto fail;
 
     d->arch.vgsx_osid = config->arch.vgsx_osid;
+#ifdef CONFIG_HAS_COPROC
+    if ( (rc = vcoproc_domain_init(d)) != 0 )
+        goto fail;
+#endif
 
     return 0;
 
@@ -780,6 +785,9 @@ fail:
 
 void arch_domain_destroy(struct domain *d)
 {
+#ifdef CONFIG_HAS_COPROC
+    vcoproc_domain_free(d);
+#endif
     /* IOMMU page table is shared with P2M, always call
      * iommu_domain_destroy() before p2m_teardown().
      */
@@ -986,6 +994,7 @@ enum {
     PROG_xen,
     PROG_page,
     PROG_mapping,
+    PROG_coproc,
     PROG_done,
 };
 
@@ -1040,7 +1049,15 @@ int domain_relinquish_resources(struct domain *d)
         if ( ret )
             return ret;
 
-    PROGRESS(done):
+#ifdef CONFIG_HAS_COPROC
+
+    PROGRESS(coproc):
+        ret = coproc_release_vcoprocs(d);
+        if ( ret )
+            return ret;
+#endif
+
+   PROGRESS(done):
         break;
 
     default:

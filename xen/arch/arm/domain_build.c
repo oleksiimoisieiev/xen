@@ -29,6 +29,7 @@
 
 #include <xen/irq.h>
 #include <xen/grant_table.h>
+#include "coproc/coproc.h"
 
 static unsigned int __initdata opt_dom0_max_vcpus;
 integer_param("dom0_max_vcpus", opt_dom0_max_vcpus);
@@ -1097,6 +1098,44 @@ static int __init make_timer_node(const struct kernel_info *kinfo)
     return res;
 }
 
+#ifdef CONFIG_HAS_COPROC
+static int make_coproc_node(const struct domain *d, void *fdt,
+                            const struct dt_device_node *node)
+{
+    const struct dt_property *prop;
+    const char *name, *path;
+    int res = 0;
+
+    dt_dprintk("Create coproc node\n");
+
+    path = dt_node_full_name(node);
+    name = strrchr(path, '/');
+    name = name ? name + 1 : path;
+
+    res = fdt_begin_node(fdt, name);
+    if ( res )
+        return res;
+
+    dt_for_each_property_node (node, prop)
+    {
+        const void *prop_data = prop->value;
+        u32 prop_len = prop->length;
+
+        /* Don't expose the property "xen,coproc" to the guest */
+        if ( dt_property_name_is_equal(prop, "xen,coproc") )
+            continue;
+
+        res = fdt_property(fdt, prop->name, prop_data, prop_len);
+        if ( res )
+            return res;
+    }
+
+    res = fdt_end_node(fdt);
+
+    return res;
+}
+#endif
+
 /*
  * This function is used as part of the device tree generation for Dom0
  * on ACPI systems, and DomUs started directly from Xen based on device
@@ -1281,6 +1320,60 @@ static int __init map_device_children(struct domain *d,
 
     return 0;
 }
+
+#ifdef CONFIG_HAS_COPROC
+/* Just give permission to the guest to manage coproc IRQs for now */
+static int handle_coproc_node(struct domain *d, struct dt_device_node *dev)
+{
+    unsigned int nirq, i;
+    struct dt_raw_irq rirq;
+    int res;
+
+    dt_dprintk("Handle coproc node\n");
+
+    nirq = dt_number_of_irq(dev);
+
+    for ( i = 0; i < nirq; i++ )
+    {
+        res = dt_device_get_raw_irq(dev, i, &rirq);
+        if ( res )
+        {
+            printk(XENLOG_ERR "Unable to retrieve irq %u for %s\n",
+                   i, dt_node_full_name(dev));
+            return res;
+        }
+
+        /*
+         * Don't map IRQ that have no physical meaning
+         * ie: IRQ whose controller is not the GIC
+         */
+        if ( rirq.controller != dt_interrupt_controller )
+        {
+            dt_dprintk("irq %u not connected to primary controller. Connected to %s\n",
+                      i, dt_node_full_name(rirq.controller));
+            continue;
+        }
+
+        res = platform_get_irq(dev, i);
+        if ( res < 0 )
+        {
+            printk(XENLOG_ERR "Unable to get irq %u for %s\n",
+                   i, dt_node_full_name(dev));
+            return res;
+        }
+
+        res = irq_permit_access(d, res);
+        if ( res )
+        {
+            printk(XENLOG_ERR "Unable to permit to dom%u access to IRQ %u\n",
+                   d->domain_id, res);
+            return res;
+        }
+    }
+
+    return 0;
+}
+#endif
 
 /*
  * handle_device_interrupts retrieves the interrupts configuration from
@@ -1478,6 +1571,23 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         return make_gic_node(d, kinfo->fdt, node);
     if ( dt_match_node(timer_matches, node) )
         return make_timer_node(kinfo);
+
+#ifdef CONFIG_HAS_COPROC
+    if ( device_get_class(node) == DEVICE_COPROC )
+    {
+        res = handle_coproc_node(d, node);
+        if ( res)
+            return res;
+
+        if ( coproc_is_attached_to_domain(d, path) )
+            return make_coproc_node(d, kinfo->fdt, node);
+        else
+        {
+            dt_dprintk("  Skip it (won't be used in domain)\n");
+            return 0;
+        }
+    }
+#endif
 
     /* Skip nodes used by Xen */
     if ( dt_device_used_by(node) == DOMID_XEN )

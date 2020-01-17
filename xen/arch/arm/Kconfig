@@ -76,6 +76,11 @@ config SBSA_VUART_CONSOLE
 	  Allows a guest to use SBSA Generic UART as a console. The
 	  SBSA Generic UART implements a subset of ARM PL011 UART.
 
+config HAS_COPROC
+	bool "Remote processors framework (EXPERIMENTAL)"
+	default y
+	depends on ARM
+
 config ARM_SSBD
 	bool "Speculative Store Bypass Disable" if EXPERT
 	depends on HAS_ALTERNATIVE
