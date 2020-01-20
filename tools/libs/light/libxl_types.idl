@@ -492,6 +492,10 @@ libxl_altp2m_mode = Enumeration("altp2m_mode", [
     (3, "limited"),
     ], init_val = "LIBXL_ALTP2M_MODE_DISABLED")
 
+libxl_device_coproc = Struct("device_coproc", [
+    ("path", string),
+    ])
+
 libxl_domain_build_info = Struct("domain_build_info",[
     ("max_vcpus",       integer),
     ("avail_vcpus",     libxl_bitmap),
@@ -555,6 +559,7 @@ libxl_domain_build_info = Struct("domain_build_info",[
     ("device_tree",      string),
     ("dt_compatible",    libxl_string_list),
     ("dt_passthrough_nodes", libxl_string_list),
+    ("coprocs",          Array(libxl_device_coproc, "num_coprocs")),
     ("acpi",             libxl_defbool),
     ("bootloader",       string),
     ("bootloader_args",  libxl_string_list),
