@@ -65,6 +65,9 @@ struct coproc_device {
 
     /* coproc callback functions */
     const struct vcoproc_ops *ops;
+
+    /* coproc implementation specific data */
+    void *priv;
 };
 
 /* coproc callback functions */
@@ -97,6 +100,9 @@ struct vcoproc_instance {
      * to the "domain's" instances list
      */
     struct list_head instance_elem;
+
+    /* vcoproc implementation specific data */
+    void *priv;
 };
 
 void coproc_init(void);
