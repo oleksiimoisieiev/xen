@@ -651,6 +651,16 @@ int route_irq_to_guest(struct domain *d, unsigned int virq,
                 retval = -EBUSY;
             }
         }
+        else
+        {
+            if ( irq == gsx_irq_num )
+                retval = add_gsx_domain(d);
+            else
+            {
+                printk(XENLOG_G_ERR "IRQ %u is already used by Xen\n", irq);
+                retval = -EBUSY;
+            }
+        }
         goto out;
     }
 

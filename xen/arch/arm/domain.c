@@ -1028,6 +1028,18 @@ int domain_relinquish_resources(struct domain *d)
 #ifdef CONFIG_IOREQ_SERVER
         ioreq_server_destroy_all(d);
 #endif
+#ifdef CONFIG_HAS_COPROC
+        d->arch.relmem = RELMEM_coproc;
+        /* Fallthrough */
+
+    case RELMEM_coproc:
+        ret = coproc_release_vcoprocs(d);
+        if ( ret )
+            return ret;
+#endif
+
+        d->arch.relmem = RELMEM_tee;
+        /* Fallthrough */
 
     PROGRESS(tee):
         ret = tee_relinquish_resources(d);
@@ -1049,15 +1061,7 @@ int domain_relinquish_resources(struct domain *d)
         if ( ret )
             return ret;
 
-#ifdef CONFIG_HAS_COPROC
-
-    PROGRESS(coproc):
-        ret = coproc_release_vcoprocs(d);
-        if ( ret )
-            return ret;
-#endif
-
-   PROGRESS(done):
+    PROGRESS(done):
         break;
 
     default:
