@@ -86,6 +86,7 @@ struct vcoproc_instance {
     /*
      * this list is used to append this vcoproc
      * to the "domain's" instances list
+     * must not be touched by any of vcoprocs
      */
     struct list_head instance_elem;
 
@@ -96,10 +97,9 @@ struct vcoproc_instance {
 /* coproc callback functions */
 struct coproc_ops {
     /* callback to perform initialization for the vcoproc instance */
-    int (*vcoproc_init)(struct domain *, struct coproc_device *,
-                        struct vcoproc_instance *);
+    int (*vcoproc_init)(struct vcoproc_instance *);
     /* callback to perform deinitialization for the vcoproc instance */
-    void (*vcoproc_deinit)(struct domain *, struct vcoproc_instance *);
+    void (*vcoproc_deinit)(struct vcoproc_instance *);
 };
 
 /* vcoproc read/write operation context */
