@@ -27,8 +27,6 @@
 #include <xen/device_tree.h>
 #include <public/domctl.h>
 
-#include "plat/platform_device.h"
-
 /* coproc memory range */
 struct mmio {
     u64 addr;
@@ -111,7 +109,7 @@ struct vcoproc_rw_context {
 };
 
 void coproc_init(void);
-struct coproc_device * coproc_alloc(struct platform_device *,
+struct coproc_device * coproc_alloc(struct dt_device_node *,
                                     const struct coproc_ops *);
 int coproc_register(struct coproc_device *);
 void coproc_release(struct coproc_device *);
