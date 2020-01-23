@@ -26,9 +26,6 @@
 
 /* TODO Some common code from here might be moved to framework */
 
-/* the amount of time to wait for the particular coproc */
-static s_time_t coproc_wait_time = MILLISECS(500);
-
 #define DT_MATCH_COPROC_XXX DT_MATCH_COMPATIBLE("vendor_xxx,coproc_xxx")
 
 static int vcoproc_xxx_read(struct vcpu *v, mmio_info_t *info, register_t *r,
