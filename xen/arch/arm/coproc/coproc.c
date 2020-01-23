@@ -22,6 +22,8 @@
 #include <xen/err.h>
 #include <xen/guest_access.h>
 
+#include <xen/vmap.h>
+
 #include "coproc.h"
 
 /* dom0_coprocs: comma-separated list of coprocs for domain 0 */
@@ -66,6 +68,91 @@ out:
     return found ? coproc : NULL;
 }
 
+static struct vcoproc_instance *coproc_init_vcoproc(struct domain *d,
+                                                    struct coproc_device *coproc)
+{
+    struct vcoproc_instance *vcoproc;
+    int ret;
+
+    vcoproc = xzalloc(struct vcoproc_instance);
+    if ( !vcoproc )
+    {
+        printk("Failed to allocate vcoproc_instance for %s\n",
+               dev_path(coproc->dev));
+        return ERR_PTR(-ENOMEM);
+    }
+
+    vcoproc->coproc = coproc;
+    vcoproc->domain = d;
+    spin_lock_init(&vcoproc->lock);
+
+    ret = coproc->ops->vcoproc_init(d, coproc, vcoproc);
+    if ( ret )
+    {
+        printk("Failed to initialize vcoproc_instance for %s\n",
+               dev_path(coproc->dev));
+        goto out;
+    }
+
+    spin_lock(&coproc->vcoprocs_lock);
+    list_add(&vcoproc->vcoproc_elem, &coproc->vcoprocs);
+    spin_unlock(&coproc->vcoprocs_lock);
+
+    return vcoproc;
+
+out:
+    xfree(vcoproc);
+    return ERR_PTR(ret);
+}
+
+struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
+                                            struct coproc_device *coproc)
+{
+    struct vcoproc_instance *vcoproc = NULL;
+    bool_t found = false;
+
+    spin_lock(&coproc->vcoprocs_lock);
+
+    if ( list_empty(&coproc->vcoprocs) )
+        goto out;
+
+    list_for_each_entry( vcoproc, &coproc->vcoprocs, vcoproc_elem )
+    {
+        if ( vcoproc->domain == d )
+        {
+            found = true;
+            break;
+        }
+    }
+
+out:
+    spin_unlock(&coproc->vcoprocs_lock);
+
+    return found ? vcoproc : NULL;
+}
+
+static inline bool_t coproc_is_created_vcoproc(struct domain *d,
+                                               struct coproc_device *coproc)
+{
+    return coproc_get_vcoproc(d, coproc) ? true : false;
+}
+
+static void coproc_deinit_vcoproc(struct domain *d,
+                                  struct vcoproc_instance *vcoproc)
+{
+    struct coproc_device *coproc;
+
+    if ( !vcoproc )
+        return;
+
+    coproc = vcoproc->coproc;
+    coproc->ops->vcoproc_deinit(d, vcoproc);
+    spin_lock(&coproc->vcoprocs_lock);
+    list_del(&vcoproc->vcoproc_elem);
+    spin_unlock(&coproc->vcoprocs_lock);
+    xfree(vcoproc);
+}
+
 static int coproc_attach_to_domain(struct domain *d,
                                    struct coproc_device *coproc)
 {
@@ -78,13 +165,13 @@ static int coproc_attach_to_domain(struct domain *d,
 
     spin_lock(&coprocs_lock);
 
-    if ( coproc->ops->vcoproc_is_created(d, coproc) )
+    if ( coproc_is_created_vcoproc(d, coproc) )
     {
         ret = -EEXIST;
         goto out;
     }
 
-    vcoproc = coproc->ops->vcoproc_init(d, coproc);
+    vcoproc = coproc_init_vcoproc(d, coproc);
     if ( IS_ERR(vcoproc) )
     {
         ret = PTR_ERR(vcoproc);
@@ -132,7 +219,7 @@ static int coproc_detach_from_domain(struct domain *d,
     list_del_init(&vcoproc->instance_elem);
     vcoproc_d->num_instances--;
 
-    coproc->ops->vcoproc_deinit(d, vcoproc);
+    coproc_deinit_vcoproc(d, vcoproc);
 
     printk("Destroyed vcoproc \"%s\" for dom%u\n",
             dev_path(coproc->dev), d->domain_id);
@@ -151,10 +238,138 @@ bool_t coproc_is_attached_to_domain(struct domain *d, const char *path)
         return false;
 
     spin_lock(&coprocs_lock);
-    is_created = coproc->ops->vcoproc_is_created(d, coproc);
+    is_created = coproc_is_created_vcoproc(d, coproc);
     spin_unlock(&coprocs_lock);
 
     return is_created;
+}
+
+struct coproc_device *coproc_alloc(struct platform_device *pdev,
+                                   const struct coproc_ops *ops)
+{
+    struct coproc_device *coproc;
+    struct device *dev = &pdev->dev;
+    struct resource *res;
+    int num_irqs, num_mmios, i, ret;
+
+    coproc = xzalloc(struct coproc_device);
+    if ( !coproc )
+    {
+        printk("Failed to allocate coproc_device for \"%s\"\n",
+               dev_path(coproc->dev));
+        return ERR_PTR(-ENOMEM);
+    }
+    coproc->dev = dev;
+
+    num_mmios = 0;
+    while ( (res = platform_get_resource(pdev, IORESOURCE_MEM, num_mmios)) )
+        num_mmios++;
+
+    if ( !num_mmios )
+    {
+        printk("Failed to find at least one mmio for \"%s\"\n",
+               dev_path(coproc->dev));
+        ret = -ENODEV;
+        goto out_free_mmios;
+    }
+
+    coproc->mmios = xzalloc_array(struct mmio, num_mmios);
+    if ( !coproc->mmios )
+    {
+        printk("Failed to allocate %d mmio(s) for \"%s\"\n", num_mmios,
+               dev_path(coproc->dev));
+        ret = -ENOMEM;
+        goto out_free_mmios;
+    }
+
+    for ( i = 0; i < num_mmios; ++i )
+    {
+        res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+        coproc->mmios[i].base = devm_ioremap_resource(dev, res);
+        if ( IS_ERR(coproc->mmios[i].base) )
+        {
+            printk("Failed to remap IO for \"%s\"\n", dev_path(coproc->dev));
+            ret = PTR_ERR(coproc->mmios[i].base);
+            goto out_iounmap_mmios;
+        }
+
+        coproc->mmios[i].size = resource_size(res);
+        coproc->mmios[i].addr = resource_addr(res);
+        coproc->mmios[i].coproc = coproc;
+    }
+    coproc->num_mmios = num_mmios;
+
+    num_irqs = 0;
+    while ( (res = platform_get_resource(pdev, IORESOURCE_IRQ, num_irqs)) )
+        num_irqs++;
+
+    if ( !num_irqs )
+    {
+        printk("Failed to find at least one irq for \"%s\"\n",
+               dev_path(coproc->dev));
+        ret = -ENODEV;
+        goto out_free_irqs;
+    }
+
+    coproc->irqs = xzalloc_array(unsigned int, num_irqs);
+    if ( !coproc->irqs )
+    {
+        printk("Failed to allocate %d irq(s) for \"%s\"\n", num_irqs,
+               dev_path(coproc->dev));
+        ret = -ENOMEM;
+        goto out_free_irqs;
+    }
+
+    for ( i = 0; i < num_irqs; ++i )
+    {
+        int irq = platform_get_irq(pdev, i);
+
+        if ( irq < 0 )
+        {
+            printk("Failed to get irq index %d for \"%s\"\n", i,
+                   dev_path(coproc->dev));
+            ret = -ENODEV;
+            goto out_free_irqs;
+        }
+        coproc->irqs[i] = irq;
+    }
+    coproc->num_irqs = num_irqs;
+
+    INIT_LIST_HEAD(&coproc->vcoprocs);
+    spin_lock_init(&coproc->vcoprocs_lock);
+    coproc->ops = ops;
+
+    return coproc;
+
+out_free_irqs:
+    xfree(coproc->irqs);
+out_iounmap_mmios:
+    for ( i = 0; i < num_mmios; ++i )
+    {
+        if ( !IS_ERR(coproc->mmios[i].base) )
+            iounmap(coproc->mmios[i].base);
+    }
+out_free_mmios:
+    xfree(coproc->mmios);
+    xfree(coproc);
+
+    return ERR_PTR(ret);
+}
+
+void coproc_release(struct coproc_device *coproc)
+{
+    int i;
+
+    if ( IS_ERR_OR_NULL(coproc) )
+        return;
+    xfree(coproc->irqs);
+    for ( i = 0; i < coproc->num_mmios; ++i )
+    {
+        if ( !IS_ERR_OR_NULL(coproc->mmios[i].base) )
+            iounmap(coproc->mmios[i].base);
+    }
+    xfree(coproc->mmios);
+    xfree(coproc);
 }
 
 static int __init vcoproc_dom0_init(struct domain *d)
