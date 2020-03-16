@@ -358,7 +358,10 @@ static inline void put_page_and_type(struct page_info *page)
 
 void clear_and_clean_page(struct page_info *page);
 
-unsigned int arch_get_dma_bitsize(void);
+static inline unsigned int arch_get_dma_bitsize(void)
+{
+    return 32;
+}
 
 #endif /*  __ARCH_ARM_MM__ */
 /*

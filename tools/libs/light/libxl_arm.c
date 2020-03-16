@@ -979,9 +979,12 @@ static int copy_coprocs_nodes(libxl__gc *gc, void *fdt, void *pfdt,
                               const libxl_domain_build_info *info)
 {
     int i, rc;
+    char *real_path, *path_end;
+    uint32_t path_len;
 
     LOG(DEBUG, "Copy coprocs nodes from the partial FDT");
 
+    rc = 0;
     for (i = 0; i < info->num_coprocs; i++) {
         const libxl_device_coproc *coproc = &info->coprocs[i];
 
@@ -989,15 +992,34 @@ static int copy_coprocs_nodes(libxl__gc *gc, void *fdt, void *pfdt,
             LOG(ERROR, "Bad coproc node for the partial FDT");
             continue;
         }
-
-        rc = copy_node_by_path(gc, coproc->path, fdt, pfdt);
-        if (rc < 0) {
-            LOG(ERROR, "Can't copy coproc node \"%s\" from the partial FDT", coproc->path);
-            return rc;
+        path_len = 0;
+        path_end = strchr(coproc->path, ';');
+        if ( !path_end )
+            real_path = (char *)coproc->path;
+        else {
+            path_len = path_end - coproc->path;
+            real_path = strndup(coproc->path, path_len);
+            if ( !real_path ) {
+                rc = -ENOMEM;
+                goto out;
+            }
         }
+        rc = copy_node_by_path(gc, real_path, fdt, pfdt);
+        if (rc < 0) {
+            LOG(ERROR, "Can't copy coproc node \"%s\" from the partial FDT", real_path);
+            goto copy_error;
+         }
+        if ( path_end )
+            free(real_path);
     }
 
-    return 0;
+    return rc;
+
+copy_error:
+    if ( path_end )
+        free(real_path);
+out:
+    return rc;
 }
 #else
 
