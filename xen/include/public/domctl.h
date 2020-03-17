@@ -1144,7 +1144,18 @@ typedef struct xen_domctl_attach_coproc xen_domctl_attach_coproc_t;
 DEFINE_XEN_GUEST_HANDLE(xen_domctl_attach_coproc_t);
 
 struct xen_domctl_platform {
+#define XEN_DOMCTL_PLATFORM_OP_PASSTHROUGH_DTDEV 0
     uint32_t cmd;           /* XEN_DOMCTL_PLATFORM_OP_* */
+    union {
+        struct {
+            /* Length of the path. */
+            uint32_t size;
+            /* Path to the device tree node of the device
+             * being passed through
+             */
+            XEN_GUEST_HANDLE_64(char) path;
+        } passthrough_dtdev;
+    } u;
 };
 
 /* XEN_DOMCTL_vmtrace_op: Perform VM tracing operations. */

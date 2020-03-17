@@ -1303,6 +1303,10 @@ int xc_attach_coproc(xc_interface *xch,
                      uint32_t domid,
                      char *path);
 
+int xc_domctl_passthrough_dtdev(xc_interface *xch,
+                                uint32_t domid,
+                                char *path);
+
 #if defined(__i386__) || defined(__x86_64__)
 /*
  * PC BIOS standard E820 types and structure.
