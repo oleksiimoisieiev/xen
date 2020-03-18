@@ -394,6 +394,7 @@ void coproc_release(struct coproc_device *coproc)
         if ( !IS_ERR_OR_NULL(coproc->mmios[i].base) )
             iounmap(coproc->mmios[i].base);
     }
+    xfree(coproc->priv);
     xfree(coproc->mmios);
     xfree(coproc);
 }
