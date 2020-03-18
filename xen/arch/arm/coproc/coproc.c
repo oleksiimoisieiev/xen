@@ -119,7 +119,7 @@ struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
 
     list_for_each_entry( vcoproc, &coproc->vcoprocs, vcoproc_elem )
     {
-        if ( vcoproc->domain == d )
+        if ( vcoproc->domain && vcoproc->domain == d )
         {
             found = true;
             break;
