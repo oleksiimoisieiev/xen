@@ -59,9 +59,11 @@ static const struct mmio_handler_ops vcoproc_xxx_mmio_handler = {
     .write = vcoproc_xxx_write,
 };
 
-static int vcoproc_xxx_vcoproc_init(struct vcoproc_instance *vcoproc)
+static int vcoproc_xxx_vcoproc_init(struct vcoproc_instance *vcoproc, const char *cfg)
 {
     int i;
+
+    (void)cfg;
 
     for ( i = 0; i < vcoproc->coproc->num_mmios; i++ )
     {

@@ -95,7 +95,7 @@ struct vcoproc_instance {
 /* coproc callback functions */
 struct coproc_ops {
     /* callback to perform initialization for the vcoproc instance */
-    int (*vcoproc_init)(struct vcoproc_instance *);
+    int (*vcoproc_init)(struct vcoproc_instance *, const char *cfg);
     /* callback to perform deinitialization for the vcoproc instance */
     void (*vcoproc_deinit)(struct vcoproc_instance *);
     /* callback to control MMIO range mapping: check if MMIO range needs to

@@ -69,7 +69,8 @@ out:
 }
 
 static struct vcoproc_instance *coproc_init_vcoproc(struct domain *d,
-                                                    struct coproc_device *coproc)
+                                                    struct coproc_device *coproc,
+                                                    const char *cfg)
 {
     struct vcoproc_instance *vcoproc;
     int ret;
@@ -85,8 +86,7 @@ static struct vcoproc_instance *coproc_init_vcoproc(struct domain *d,
     vcoproc->coproc = coproc;
     vcoproc->domain = d;
     spin_lock_init(&vcoproc->lock);
-
-    ret = coproc->ops->vcoproc_init(vcoproc);
+    ret = coproc->ops->vcoproc_init(vcoproc, cfg);
     if ( ret )
     {
         printk("Failed to initialize vcoproc_instance for %s\n",
@@ -154,7 +154,8 @@ static void coproc_deinit_vcoproc(struct vcoproc_instance *vcoproc)
 }
 
 static int coproc_attach_to_domain(struct domain *d,
-                                   struct coproc_device *coproc)
+                                   struct coproc_device *coproc,
+                                   const char *cfg)
 {
     struct vcoproc *vcoproc_d = &d->arch.vcoproc;
     struct vcoproc_instance *vcoproc;
@@ -171,7 +172,7 @@ static int coproc_attach_to_domain(struct domain *d,
         goto out;
     }
 
-    vcoproc = coproc_init_vcoproc(d, coproc);
+    vcoproc = coproc_init_vcoproc(d, coproc, cfg);
     if ( IS_ERR(vcoproc) )
     {
         ret = PTR_ERR(vcoproc);
@@ -191,7 +192,8 @@ out:
     return ret;
 }
 
-static int coproc_find_and_attach_to_domain(struct domain *d, const char *path)
+static int coproc_find_and_attach_to_domain(struct domain *d, const char *path,
+                                            const char *cfg)
 {
     struct coproc_device *coproc;
 
@@ -199,7 +201,7 @@ static int coproc_find_and_attach_to_domain(struct domain *d, const char *path)
     if ( !coproc )
         return -ENODEV;
 
-    return coproc_attach_to_domain(d, coproc);
+    return coproc_attach_to_domain(d, coproc, cfg);
 }
 
 static int coproc_detach_from_domain(struct domain *d,
@@ -483,7 +485,7 @@ static int __init vcoproc_dom0_init(struct domain *d)
 
         curr = dt_node_full_name(node);
 
-        ret = coproc_find_and_attach_to_domain(d, curr);
+        ret = coproc_find_and_attach_to_domain(d, curr, NULL);
         if (ret)
         {
             printk("Failed to attach coproc \"%s\" to dom%u (%d)\n",
@@ -556,7 +558,7 @@ int coproc_release_vcoprocs(struct domain *d)
 int coproc_do_domctl(struct xen_domctl *domctl, struct domain *d,
                      XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
 {
-    char *path;
+    char *path, *cfg;
     int ret;
 
     switch ( domctl->cmd )
@@ -577,9 +579,16 @@ int coproc_do_domctl(struct xen_domctl *domctl, struct domain *d,
             break;
         }
 
+        cfg = strchr(path, ';');
+        if ( cfg )
+        {
+            *cfg = '\0';
+            cfg++;
+        }
+
         printk("Got coproc \"%s\" for dom%u\n", path, d->domain_id);
 
-        ret = coproc_find_and_attach_to_domain(d, path);
+        ret = coproc_find_and_attach_to_domain(d, (const char *)path, (const char *)cfg);
         if ( ret )
             printk("Failed to attach coproc \"%s\" to dom%u (%d)\n",
                    path, d->domain_id, ret);
