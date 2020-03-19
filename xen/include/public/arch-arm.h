@@ -335,7 +335,6 @@ struct xen_arch_domainconfig {
      *
      */
     uint32_t clock_frequency;
-    char dom_name[256];
 };
 #endif /* __XEN__ || __XEN_TOOLS__ */
 
