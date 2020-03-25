@@ -21,6 +21,9 @@
 
 #define DT_MATCH_COPROC_VGPIO DT_MATCH_COMPATIBLE("fsl,imx8qm-gpio")
 
+/* Change this to #define VGPIO_DEBUG here to enable more debug messages */
+#undef VGPIO_DEBUG
+
 static const char CFG_PINS_STR[] = "pins=";
 
 #define CFG_PINS_STR_SIZE   (strlen(CFG_PINS_STR))
@@ -70,9 +73,10 @@ static int vcoproc_vgpio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
             return 0;
     }
     *r &= vinfo->pins_allowed;
+#ifdef VGPIO_DEBUG
     dev_dbg(ctx.coproc->dev, "read r%d=%"PRIregister" offset %#08x base %#08x\n",
             ctx.dabt.reg, *r, ctx.offset, (u32)mmio->addr);
-
+#endif
     return 1;
 
 bad_width:
@@ -129,10 +133,10 @@ static int vcoproc_vgpio_write(struct vcpu *v, mmio_info_t *info, register_t r,
             ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
             return 0;
     }
-
+#ifdef VGPIO_DEBUG
     dev_dbg(ctx.coproc->dev, "write r%d=%"PRIregister" offset %#08x base %#08x\n",
             ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
-
+#endif
     return 1;
 
 bad_width:
@@ -172,9 +176,10 @@ static void coproc_vgpio_irq_handler(int irq, void *dev,
         if ( (irq_check = irq_result & vinfo->pins_allowed) )
         {
             vinfo->reg_val_irq_status = irq_status & vinfo->pins_allowed;
-
+        #ifdef VGPIO_DEBUG
             dev_dbg(coproc_vgpio->dev, "Inject irq (%d) from pin (%#08x) to domain (%d)\n",
                     irq, irq_check, vcoproc->domain->domain_id);
+        #endif
             vgic_inject_irq(vcoproc->domain, NULL, irq, true);
             irq_check = 0;
         }
