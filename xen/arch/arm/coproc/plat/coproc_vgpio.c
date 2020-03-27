@@ -17,6 +17,9 @@
  * GNU General Public License for more details.
  */
 
+#include <asm/sci.h>
+#include <xen/device_tree.h>
+
 #include "coproc_vgpio.h"
 
 #define DT_MATCH_COPROC_VGPIO DT_MATCH_COMPATIBLE("fsl,imx8qm-gpio")
@@ -242,6 +245,61 @@ busy_pins:
     return -EPERM;
 }
 
+static int coproc_vgpio_sc_resource_get_id(struct device *dev,
+                                           struct dt_device_node *np)
+{
+    struct dt_device_node *pnode;
+    const __be32 *prop;
+    u32 resource_id;
+
+    /* Get the handle to the power domain. */
+    prop = dt_get_property(np, "power-domains", NULL);
+    if ( !prop )
+    {
+        dev_err(dev, "device has no power domains, can't power on\n");
+        return -ENODEV;
+    }
+
+    /* Get the power domain's node. */
+    pnode = dt_find_node_by_phandle(be32_to_cpup(prop));
+    if ( !pnode )
+    {
+        dev_err(dev, "device has no power domain node, can't power on\n");
+        return -ENODEV;
+    }
+
+    /* Now get the resource ID of this power domain. */
+    if ( !dt_property_read_u32(pnode, "reg", &resource_id) )
+    {
+        dev_err(dev, "device has no power domain resource, can't power on\n");
+        return -ENODEV;
+    }
+
+    dev_dbg(dev, "power mode resource id: %d\n", resource_id);
+    return resource_id;
+}
+
+static int coproc_vgpio_sc_resource_set_power(struct device *dev,
+                                              struct gpio_info *info,
+                                              sc_pm_power_mode_t mode)
+{
+    sc_err_t sci_err;
+
+    dev_dbg(dev, "powering %s resource %d\n",
+            mode == SC_PM_PW_MODE_ON ? "on" : "off",
+            info->sc_resource_id);
+    sci_err = sc_pm_set_resource_power_mode(mu_ipcHandle,
+                                            info->sc_resource_id,
+                                            mode);
+    if ( sci_err != SC_ERR_NONE )
+    {
+        dev_err(dev, "failed to power on resource %d\n", info->sc_resource_id);
+        return -ENODEV;
+    }
+
+    return 0;
+}
+
 static int vcoproc_vgpio_vcoproc_init(struct vcoproc_instance *vcoproc,
                                       const char *cfg)
 {
@@ -324,6 +382,15 @@ static int coproc_vgpio_dt_probe(struct dt_device_node *np)
             goto out_release_irqs;
         }
     }
+
+    ret = coproc_vgpio_sc_resource_get_id(dev, np);
+    if ( ret < 0 )
+        goto out_release_irqs;
+    info->sc_resource_id = ret;
+
+    ret = coproc_vgpio_sc_resource_set_power(dev, info, SC_PM_PW_MODE_ON);
+    if ( ret < 0 )
+        goto out_release_irqs;
 
     ret = coproc_register(coproc_vgpio);
     if ( ret )

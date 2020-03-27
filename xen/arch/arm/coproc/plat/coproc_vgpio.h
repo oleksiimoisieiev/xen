@@ -57,6 +57,7 @@ struct gpio_info {
     void __iomem *mapbase;
     struct domain *dom;
     u32 pins_assigned;
+    u32 sc_resource_id;
 };
 
 struct vgpio_info {
