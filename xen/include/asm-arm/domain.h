@@ -108,7 +108,8 @@ struct arch_domain
 #ifdef CONFIG_TEE
     void *tee;
 #endif
-
+    /* OSID used by virtual GSX device */
+    uint8_t vgsx_osid;
     /* Platform's private data */
     void *plat_priv;
 }  __cacheline_aligned;
