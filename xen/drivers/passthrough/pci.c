@@ -923,6 +923,8 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
     if ( ret )
         goto out;
 
+    vpci_deassign_device(pdev);
+
     if ( pdev->domain == hardware_domain  )
         pdev->quarantine = false;
 
@@ -1481,6 +1483,7 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
 {
     const struct domain_iommu *hd = dom_iommu(d);
     struct pci_dev *pdev;
+    uint8_t old_devfn;
     int rc = 0;
 
     if ( !is_iommu_enabled(d) )
@@ -1500,6 +1503,8 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
     if ( pdev->broken && d != hardware_domain && d != dom_io )
         goto done;
 
+    vpci_deassign_device(pdev);
+
     rc = pdev_msix_assign(d, pdev);
     if ( rc )
         goto done;
@@ -1517,6 +1522,8 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
                           pci_to_dev(pdev), flag)) )
         goto done;
 
+    old_devfn = devfn;
+
     for ( ; pdev->phantom_stride; rc = 0 )
     {
         devfn += pdev->phantom_stride;
@@ -1525,6 +1532,10 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
         rc = iommu_call(hd->platform_ops, assign_device, d, devfn,
                         pci_to_dev(pdev), flag);
     }
+
+    rc = vpci_assign_device(pdev);
+    if ( rc && deassign_device(d, seg, bus, old_devfn) )
+        domain_crash(d);
 
  done:
     if ( rc )
