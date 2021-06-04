@@ -181,6 +181,10 @@ world:
 .PHONY: debball
 debball: dist
 	fakeroot sh ./tools/misc/mkdeb $(XEN_ROOT) $$($(MAKE) -C xen xenversion --no-print-directory)
+	
+.PHONY: debball_ext
+debball_ext: dist
+	fakeroot sh ./tools/misc/mkdeb_ext $(XEN_ROOT) $$($(MAKE) -C xen xenversion --no-print-directory)
 
 # Package a build in an rpmball file, that is inside a .rpm format
 # container to allow for easy and clean removal. This is not intended

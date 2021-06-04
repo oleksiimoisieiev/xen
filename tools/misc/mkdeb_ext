@@ -1,0 +1,120 @@
+#!/bin/bash -e
+#
+# mkdeb: package the dist/install output of a Xen build in a .deb 
+#
+# Takes 2 arguments, the path to the dist directory and the version
+
+if test -z "$1" -o -z "$2" ; then 
+  echo "usage: $0 path-to-XEN_ROOT xen-version"
+  exit 1
+fi 
+
+cd $1
+version=$2
+
+# map the architecture, if necessary
+case "$XEN_TARGET_ARCH" in
+  x86_32|x86_32p)  arch=i386 ;;
+  x86_64)  arch=amd64 ;;
+  arm32)   arch=armhf ;;
+  arm64)   arch=arm64 ;;
+  *) echo "Unknown XEN_TARGET_ARCH $XEN_TARGET_ARCH" >&2
+     exit 1
+     ;;
+esac
+
+cd dist
+WORKDIR=$(pwd)
+
+rm -rf deb
+mkdir deb
+
+# check rsync installed on target system
+which rsync > /dev/null
+if [ $? -eq 0 ]; then
+	rsync -ax --exclude 'usr/local/lib/python*' --exclude 'usr/local/share/qemu-xen' --exclude 'boot' install/  deb/
+else
+    echo FAIL: Install rsync to proceed create debball !
+    exit 1
+fi
+
+
+# make xen services enabled
+XEN_SYSTEMD_LIB=/usr/local/lib/systemd/system
+XEN_SYSTEMD_DIR=${WORKDIR}/deb/etc/systemd/system/multi-user.target.wants
+
+mkdir -p ${XEN_SYSTEMD_DIR}
+ln -s ${XEN_SYSTEMD_LIB}/xenstored.service ${XEN_SYSTEMD_DIR}/xenstored.service
+ln -s ${XEN_SYSTEMD_LIB}/xendomains.service ${XEN_SYSTEMD_DIR}/xendomains.service
+ln -s ${XEN_SYSTEMD_LIB}/xenconsoled.service ${XEN_SYSTEMD_DIR}/xenconsoled.service
+ln -s ${XEN_SYSTEMD_LIB}/xen-init-dom0.service ${XEN_SYSTEMD_DIR}/xen-init-dom0.service
+ln -s ${XEN_SYSTEMD_LIB}/system/xen-watchdog.service ${XEN_SYSTEMD_DIR}/xen-watchdog.service
+ln -s ${XEN_SYSTEMD_LIB}/xen-qemu-dom0-disk-backend.service ${XEN_SYSTEMD_DIR}/xen-qemu-dom0-disk-backend.service
+ln -s ${XEN_SYSTEMD_LIB}/systemd-networkd.service ${XEN_SYSTEMD_DIR}/systemd-networkd.service
+ln -s ${XEN_SYSTEMD_LIB}/systemd-networkd.socket ${XEN_SYSTEMD_DIR}/systemd-networkd.socket
+
+# create xenbr0 network bridge
+XEN_NETWORK_DIR=${WORKDIR}/deb/etc/systemd/network
+mkdir -p ${XEN_NETWORK_DIR}
+
+cat >${XEN_NETWORK_DIR}/eth0.network <<EOF
+[Match]
+Name=eth0
+
+[Network]
+DHCP=yes
+IPForward=ipv4
+IPMasquerade=yes
+DefaultRouteOnDevice=true
+EOF
+
+cat >${XEN_NETWORK_DIR}/xenbr0.network <<EOF
+[Match]
+Name=xenbr0
+
+[Network]
+DHCP=No
+Address=192.168.1.1/24
+IPForward=ipv4
+IPMasquerade=yes
+ConfigureWithoutCarrier=true
+EOF
+
+cat >${XEN_NETWORK_DIR}/xenbr0.netdev <<EOF
+[NetDev]
+Name=xenbr0
+Kind=bridge
+
+[Bridge]
+ForwardDelaySec=0
+EOF
+
+# Debian doesn't use /usr/lib64 for 64-bit libraries
+if test -d deb/usr/lib64 ; then 
+  cp -a deb/usr/lib64/* deb/usr/lib/
+  rm -rf deb/usr/lib64
+fi
+
+# Generate a control file
+mkdir -p deb/DEBIAN
+cat >deb/DEBIAN/control <<EOF
+Package: xen-upstream
+Source: xen-upstream
+Version: $version
+Architecture: $arch
+Maintainer: Unmaintained snapshot
+Section: admin
+Priority: optional
+Installed-Size: $(du -ks deb | cut -f1)
+Description: Xen-tools package, version $version
+ This package contains the xen-tools
+ and corresponding other files for enabling xen services 
+ and creation network bridge.
+EOF
+
+find deb/etc -type f -printf /etc/%P\\n >deb/DEBIAN/conffiles
+
+chown -R root:root deb
+dpkg-deb --build -z0 deb ../xen-upstream-$version.deb
+
+rm -rf deb
