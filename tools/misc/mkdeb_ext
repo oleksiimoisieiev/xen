@@ -60,6 +60,7 @@ mkdir -p ${XEN_NETWORK_DIR}
 cat >${XEN_NETWORK_DIR}/eth0.network <<EOF
 [Match]
 Name=eth0
+KernelCommandLine=!nfsroot
 
 [Network]
 DHCP=yes
