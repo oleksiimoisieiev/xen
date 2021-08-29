@@ -119,6 +119,7 @@ struct vcoproc_rw_context {
     struct vcoproc_instance *vcoproc;
 };
 
+bool_t coproc_is_coproc_irq(unsigned int);
 void coproc_init(void);
 struct coproc_device * coproc_alloc(struct dt_device_node *,
                                     const struct coproc_ops *);

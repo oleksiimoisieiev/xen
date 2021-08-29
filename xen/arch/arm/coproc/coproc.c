@@ -40,6 +40,35 @@ static DEFINE_SPINLOCK(coprocs_lock);
 /* the number of registered coproc devices */
 static int num_coprocs;
 
+bool_t coproc_is_coproc_irq(unsigned int irq)
+{
+    struct coproc_device *coproc;
+    bool_t found = false;
+    int i;
+
+    spin_lock(&coprocs_lock);
+
+    if ( list_empty(&coprocs) )
+        goto out;
+
+    list_for_each_entry(coproc, &coprocs, coproc_elem)
+    {
+        for ( i = 0; i < coproc->num_irqs; ++i )
+        {
+            if ( coproc->irqs[i] == irq )
+            {
+                found = true;
+                break;
+            }
+        }
+    }
+
+out:
+    spin_unlock(&coprocs_lock);
+
+    return found;
+}
+
 static struct coproc_device *coproc_find_by_path(const char *path)
 {
     struct coproc_device *coproc;
