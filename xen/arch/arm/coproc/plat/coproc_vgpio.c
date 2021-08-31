@@ -17,183 +17,15 @@
  * GNU General Public License for more details.
  */
 
-#include <asm/sci.h>
 #include <xen/device_tree.h>
+#include <xen/err.h>
 
 #include "coproc_vgpio.h"
-
-#define DT_MATCH_COPROC_VGPIO DT_MATCH_COMPATIBLE("fsl,imx8qm-gpio")
-
-/* Change this to #define VGPIO_DEBUG here to enable more debug messages */
-#undef VGPIO_DEBUG
 
 static const char CFG_PINS_STR[] = "pins=";
 
 #define CFG_PINS_STR_SIZE   (strlen(CFG_PINS_STR))
 #define CFG_PINS_BASE       16
-
-static int vcoproc_vgpio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
-                              void *priv)
-{
-    struct mmio *mmio = priv;
-    struct vcoproc_rw_context ctx;
-    struct vgpio_info *vinfo;
-    int offset, size;
-
-    vcoproc_get_rw_context(v->domain, mmio, info, &ctx);
-    vinfo = (struct vgpio_info *)ctx.vcoproc->priv;
-    offset = (int)ctx.offset;
-    size = ctx.dabt.size;
-
-    switch ( offset )
-    {
-        case VRANGE32(GPIO_DR, GPIO_IMR):
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            *r = vgpio_read32(ctx.coproc, ctx.offset);
-            break ;
-
-        case GPIO_ISR:
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            *r = vinfo->reg_val_irq_status;
-            break ;
-
-        case GPIO_EDGE_SEL:
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            *r = vgpio_read32(ctx.coproc, ctx.offset);
-            break ;
-
-        case VRANGE32(0x20, 0x80):
-            goto read_reserved;
-
-        case VRANGE32(GPIO_DR_SET, GPIO_DR_TOGGLE):
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            *r = vgpio_read32(ctx.coproc, ctx.offset);
-            break ;
-
-        default:
-            dev_err(ctx.coproc->dev, "unhandled read r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, *r, ctx.offset, (u32)mmio->addr);
-            return 0;
-    }
-    *r &= vinfo->pins_allowed;
-#ifdef VGPIO_DEBUG
-    dev_dbg(ctx.coproc->dev, "read r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, *r, ctx.offset, (u32)mmio->addr);
-#endif
-    return 1;
-
-bad_width:
-    dev_err(ctx.coproc->dev, "bad read width = %d; r%d=%"PRIregister" offset %#08x base %#08x\n",
-            size, ctx.dabt.reg, *r, ctx.offset, (u32)mmio->addr);
-    return 0;
-
-read_reserved:
-    dev_err(ctx.coproc->dev, "bad read reserved r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, *r, ctx.offset, (u32)mmio->addr);
-    return 0;
-}
-
-static int vcoproc_vgpio_write(struct vcpu *v, mmio_info_t *info, register_t r,
-                               void *priv)
-{
-    struct mmio *mmio = priv;
-    struct vcoproc_rw_context ctx;
-    struct vgpio_info *vinfo;
-    int offset, size;
-
-    vcoproc_get_rw_context(v->domain, mmio, info, &ctx);
-    vinfo = (struct vgpio_info *)ctx.vcoproc->priv;
-    offset = (int)ctx.offset;
-    size = ctx.dabt.size;
-
-    switch ( offset )
-    {
-        case VRANGE32(GPIO_DR, GPIO_IMR):
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            vgpio_write32(ctx.coproc, ctx.offset, r & vinfo->pins_allowed);
-            break ;
-
-        case GPIO_ISR:
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            vinfo->reg_val_irq_status = r;
-            break ;
-
-        case GPIO_EDGE_SEL:
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            vgpio_write32(ctx.coproc, ctx.offset, r & vinfo->pins_allowed);
-            break ;
-
-        case VRANGE32(0x20, 0x80):
-            goto write_reserved;
-
-        case VRANGE32(GPIO_DR_SET, GPIO_DR_TOGGLE):
-            if ( size != GPIO_WORD_SIZE ) goto bad_width;
-            vgpio_write32(ctx.coproc, ctx.offset, r & vinfo->pins_allowed);
-            break ;
-
-        default:
-            dev_err(ctx.coproc->dev, "unhandled write r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
-            return 0;
-    }
-#ifdef VGPIO_DEBUG
-    dev_dbg(ctx.coproc->dev, "write r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
-#endif
-    return 1;
-
-bad_width:
-    dev_err(ctx.coproc->dev, "bad write width = %d; r%d=%"PRIregister" offset %#08x base %#08x\n",
-            size, ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
-    return 0;
-
-write_reserved:
-    dev_err(ctx.coproc->dev, "bad write reserved r%d=%"PRIregister" offset %#08x base %#08x\n",
-            ctx.dabt.reg, r, ctx.offset, (u32)mmio->addr);
-    return 0;
-}
-
-static const struct mmio_handler_ops vcoproc_vgpio_mmio_handler = {
-    .read = vcoproc_vgpio_read,
-    .write = vcoproc_vgpio_write,
-};
-
-static void coproc_vgpio_irq_handler(int irq, void *dev,
-                                     struct cpu_user_regs *regs)
-{
-    struct coproc_device *coproc_vgpio = dev;
-    struct gpio_info *info = (struct gpio_info *)coproc_vgpio->priv;
-    struct vgpio_info *vinfo;
-    struct vcoproc_instance *vcoproc = NULL;
-    u32 irq_status, imr_status, irq_result, irq_check;
-
-    irq_status = readl(info->reg_vaddr_irq_status);
-    imr_status = readl(info->reg_vaddr_imr_status);
-    irq_result = irq_status & imr_status;
-    writel(irq_result, info->reg_vaddr_irq_status);
-
-    irq_check = 0;
-    list_for_each_entry( vcoproc, &coproc_vgpio->vcoprocs, vcoproc_elem )
-    {
-        vinfo = (struct vgpio_info *)vcoproc->priv;
-        if ( (irq_check = irq_result & vinfo->pins_allowed) )
-        {
-            vinfo->reg_val_irq_status = irq_status & vinfo->pins_allowed;
-        #ifdef VGPIO_DEBUG
-            dev_dbg(coproc_vgpio->dev, "Inject irq (%d) from pin (%#08x) to domain (%d)\n",
-                    irq, irq_check, vcoproc->domain->domain_id);
-        #endif
-            vgic_inject_irq(vcoproc->domain, NULL, irq, true);
-            irq_check = 0;
-        }
-    }
-}
-
-/*
- * TODO: Pins configuration processing must be moved to XEN Tools.
- * For now cfg_pins() function is a hack until there is no way to pass
- * specific coprocessor configuration in binary form from XEN Tools to XEN.
- */
 
 static int cfg_pins(struct vcoproc_instance **vcoproc, const char *cfg)
 {
@@ -245,66 +77,9 @@ busy_pins:
     return -EPERM;
 }
 
-static int coproc_vgpio_sc_resource_get_id(struct device *dev,
-                                           struct dt_device_node *np)
-{
-    struct dt_device_node *pnode;
-    const __be32 *prop;
-    u32 resource_id;
-
-    /* Get the handle to the power domain. */
-    prop = dt_get_property(np, "power-domains", NULL);
-    if ( !prop )
-    {
-        dev_err(dev, "device has no power domains, can't power on\n");
-        return -ENODEV;
-    }
-
-    /* Get the power domain's node. */
-    pnode = dt_find_node_by_phandle(be32_to_cpup(prop));
-    if ( !pnode )
-    {
-        dev_err(dev, "device has no power domain node, can't power on\n");
-        return -ENODEV;
-    }
-
-    /* Now get the resource ID of this power domain. */
-    if ( !dt_property_read_u32(pnode, "reg", &resource_id) )
-    {
-        dev_err(dev, "device has no power domain resource, can't power on\n");
-        return -ENODEV;
-    }
-
-    dev_dbg(dev, "power mode resource id: %d\n", resource_id);
-    return resource_id;
-}
-
-static int coproc_vgpio_sc_resource_set_power(struct device *dev,
-                                              struct gpio_info *info,
-                                              sc_pm_power_mode_t mode)
-{
-    sc_err_t sci_err;
-
-    dev_dbg(dev, "powering %s resource %d\n",
-            mode == SC_PM_PW_MODE_ON ? "on" : "off",
-            info->sc_resource_id);
-    sci_err = sc_pm_set_resource_power_mode(mu_ipcHandle,
-                                            info->sc_resource_id,
-                                            mode);
-    if ( sci_err != SC_ERR_NONE )
-    {
-        dev_err(dev, "failed to power on resource %d\n", info->sc_resource_id);
-        return -ENODEV;
-    }
-
-    return 0;
-}
-
-static int vcoproc_vgpio_vcoproc_init(struct vcoproc_instance *vcoproc,
+int vcoproc_vgpio_vcoproc_init(struct vcoproc_instance *vcoproc,
                                       const char *cfg)
 {
-    int i;
-
     vcoproc->priv = xzalloc(struct vgpio_info);
     if ( !vcoproc->priv )
     {
@@ -316,17 +91,10 @@ static int vcoproc_vgpio_vcoproc_init(struct vcoproc_instance *vcoproc,
     if ( cfg_pins(&vcoproc, cfg) )
         return -EINVAL;
 
-    for ( i = 0; i < vcoproc->coproc->num_mmios; i++ )
-    {
-        struct mmio *mmio = &vcoproc->coproc->mmios[i];
-        register_mmio_handler(vcoproc->domain, &vcoproc_vgpio_mmio_handler,
-                              mmio->addr, mmio->size, mmio);
-    }
-
     return 0;
 }
 
-static void vcoproc_vgpio_vcoproc_deinit(struct vcoproc_instance *vcoproc)
+void vcoproc_vgpio_vcoproc_deinit(struct vcoproc_instance *vcoproc)
 {
     struct vgpio_info *vinfo;
     struct gpio_info *info;
@@ -338,104 +106,41 @@ static void vcoproc_vgpio_vcoproc_deinit(struct vcoproc_instance *vcoproc)
     xfree(vcoproc->priv);
 }
 
-static const struct coproc_ops vcoproc_vgpio_vcoproc_ops = {
-    .vcoproc_init        = vcoproc_vgpio_vcoproc_init,
-    .vcoproc_deinit      = vcoproc_vgpio_vcoproc_deinit,
-};
-
-static int coproc_vgpio_dt_probe(struct dt_device_node *np)
+struct coproc_device *coproc_vgpio_alloc(struct dt_device_node *np,
+                                   const struct coproc_ops *ops)
 {
     struct coproc_device *coproc_vgpio;
     struct device *dev = &np->dev;
-    int i, ret;
     struct gpio_info *info;
-    char *reg_base;
 
-    coproc_vgpio = coproc_alloc(np, &vcoproc_vgpio_vcoproc_ops);
+    coproc_vgpio = coproc_alloc(np, ops);
     if ( IS_ERR_OR_NULL(coproc_vgpio) )
-        return PTR_ERR(coproc_vgpio);
+        return ERR_PTR(-ENOMEM);
 
     coproc_vgpio->priv = xzalloc(struct gpio_info);
     if ( !coproc_vgpio->priv )
     {
         dev_err(dev, "failed to allocate vgpio coproc private data\n");
-        ret = -ENOMEM;
         goto out_release_coproc;
     }
     info = (struct gpio_info *)coproc_vgpio->priv;
     info->pins_assigned = 0;
-    reg_base = (char *)coproc_vgpio->mmios[0].base;
-    info->reg_vaddr_irq_status = (u32 *)(reg_base + GPIO_ISR);
-    info->reg_vaddr_imr_status = (u32 *)(reg_base + GPIO_IMR);
-    for ( i = 0; i < coproc_vgpio->num_irqs; ++i )
-    {
-        dev_dbg(dev, "request irq %d (%u)\n", i, coproc_vgpio->irqs[i]);
-        ret = request_irq(coproc_vgpio->irqs[i],
-                         IRQF_SHARED,
-                         coproc_vgpio_irq_handler,
-                         "coproc_vgpio irq",
-                         coproc_vgpio);
-        if ( ret )
-        {
-            dev_err(dev, "failed to request irq %d (%u)\n", i,
-                    coproc_vgpio->irqs[i]);
-            goto out_release_irqs;
-        }
-    }
 
-    ret = coproc_vgpio_sc_resource_get_id(dev, np);
-    if ( ret < 0 )
-        goto out_release_irqs;
-    info->sc_resource_id = ret;
+    return coproc_vgpio;
 
-    ret = coproc_vgpio_sc_resource_set_power(dev, info, SC_PM_PW_MODE_ON);
-    if ( ret < 0 )
-        goto out_release_irqs;
-
-    ret = coproc_register(coproc_vgpio);
-    if ( ret )
-    {
-        dev_err(dev, "failed to register coproc (%d)\n", ret);
-        goto out_release_irqs;
-    }
-
-    return 0;
-
-out_release_irqs:
-    while ( i-- )
-        release_irq(coproc_vgpio->irqs[i], coproc_vgpio);
-    xfree(coproc_vgpio->priv);
 out_release_coproc:
     coproc_release(coproc_vgpio);
-    return ret;
-
+    return ERR_PTR(-ENOMEM);
 }
 
-static const struct dt_device_match coproc_vgpio_dt_match[] __initconst =
+void coproc_vgpio_release(struct coproc_device *coproc_vgpio)
 {
-    DT_MATCH_COPROC_VGPIO,
-    { /* sentinel */ },
-};
+    if ( IS_ERR_OR_NULL(coproc_vgpio) )
+        return;
 
-static __init int coproc_vgpio_init(struct dt_device_node *dev, const void *data)
-{
-    int ret;
-
-    dt_device_set_used_by(dev, DOMID_XEN);
-
-    ret = coproc_vgpio_dt_probe(dev);
-    if ( ret )
-        return ret;
-
-    return 0;
+    xfree(coproc_vgpio->priv);
+    coproc_release(coproc_vgpio);
 }
-
-
-DT_DEVICE_START(coproc_vgpio, "COPROC_VGPIO", DEVICE_COPROC)
-    .dt_match = coproc_vgpio_dt_match,
-    .init = coproc_vgpio_init,
-DT_DEVICE_END
-
 
 /*
  * Local variables:
