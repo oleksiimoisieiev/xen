@@ -432,6 +432,7 @@ void coproc_unmap(void *va)
 static int __init vcoproc_dom0_init(struct domain *d)
 {
     const char *curr, *next;
+    char *opts;
     int len = 0, ret = 0;
 
     if ( !strcmp(opt_dom0_coprocs, "") )
@@ -470,6 +471,14 @@ static int __init vcoproc_dom0_init(struct domain *d)
         }
 
         strlcpy(buf, curr, len + 1);
+
+        opts = strchr(buf, ';');
+        if ( opts )
+        {
+            *opts = '\0';
+            len = opts - buf;
+            opts++;
+        }
         if ( is_alias )
             node = dt_find_node_by_alias(buf);
         else
@@ -480,19 +489,20 @@ static int __init vcoproc_dom0_init(struct domain *d)
                    is_alias ? "alias" : "path", buf);
             ret = -EINVAL;
         }
-        xfree(buf);
         if ( ret )
-            break;
-
-        curr = dt_node_full_name(node);
-
-        ret = coproc_find_and_attach_to_domain(d, curr, NULL);
-        if (ret)
         {
-            printk("Failed to attach coproc \"%s\" to dom%u (%d)\n",
-                   curr, d->domain_id, ret);
+            xfree(buf);
             break;
         }
+        ret = coproc_find_and_attach_to_domain(d, buf, opts);
+        if ( ret )
+        {
+            printk("Failed to attach coproc \"%s\" to dom%u (%d)\n",
+                   buf, d->domain_id, ret);
+            xfree(buf);
+            break;
+        }
+        xfree(buf);
     }
 
     return ret;
