@@ -13,3 +13,11 @@ config HAS_VGPIO_IMX
   help
     Enable VGPIO support for the IMX platform. It allows guests to share
     gpio modules pins on your platform.
+
+config HAS_VGPIO_RCAR
+  bool "Enable VGPIO support for the RCAR platform"
+  default y
+  depends on HAS_VGPIO
+  help
+    Enable VGPIO support for the RCAR platform. It allows guests to share
+    gpio modules pins on your platform.
