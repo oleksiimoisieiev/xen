@@ -161,6 +161,25 @@ const void *dt_get_property(const struct dt_device_node *np,
     return pp ? pp->value : NULL;
 }
 
+bool_t dt_property_read_u32_array(const struct dt_device_node *np,
+                         const char *name, u32 *out_value, int count)
+{
+    u32 len;
+    const __be32 *val;
+    int i;
+
+    val = dt_get_property(np, name, &len);
+    if ( !val || len != (count << 2) )
+        return 0;
+
+    for (i = 0; i < count; i++)
+    {
+        out_value[i] = be32_to_cpup(val++);
+    }
+
+    return 1;
+}
+
 bool_t dt_property_read_u32(const struct dt_device_node *np,
                          const char *name, u32 *out_value)
 {
@@ -986,7 +1005,7 @@ int dt_for_each_range(const struct dt_device_node *dev,
  *
  * Returns a node pointer.
  */
-static struct dt_device_node *dt_find_node_by_phandle(dt_phandle handle)
+struct dt_device_node *dt_find_node_by_phandle(dt_phandle handle)
 {
     struct dt_device_node *np;
 
@@ -1585,6 +1604,11 @@ bool_t dt_device_for_passthrough(const struct dt_device_node *device)
 {
     return (dt_find_property(device, "xen,passthrough", NULL) != NULL);
 
+}
+
+bool_t dt_device_for_coproc(const struct dt_device_node *device)
+{
+    return (dt_find_property(device, "xen,coproc", NULL) != NULL);
 }
 
 static int __dt_parse_phandle_with_args(const struct dt_device_node *np,

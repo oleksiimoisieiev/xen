@@ -55,6 +55,15 @@ struct arch_domain
 
     /* Continuable domain_relinquish_resources(). */
     unsigned int rel_priv;
+    enum {
+        RELMEM_not_started,
+        RELMEM_tee,
+        RELMEM_xen,
+        RELMEM_page,
+        RELMEM_mapping,
+        RELMEM_coproc,
+        RELMEM_done,
+    } relmem;
 
     struct {
         uint64_t offset;
@@ -69,6 +78,16 @@ struct arch_domain
         const struct vuart_info     *info;
         spinlock_t                  lock;
     } vuart;
+
+#ifdef CONFIG_HAS_COPROC
+    struct vcoproc {
+        /* The number of vcoproc instances for this domain */
+        int num_instances;
+        /* The "domain's" instances list is used to keep track of all vcoproc
+         * instances that have been created for this domain */
+        struct list_head instances;
+    } vcoproc;
+#endif
 
     unsigned int evtchn_irq;
 #ifdef CONFIG_ACPI
@@ -89,9 +108,10 @@ struct arch_domain
 #ifdef CONFIG_TEE
     void *tee;
 #endif
-
     /* OSID used by virtual GSX device */
     uint8_t vgsx_osid;
+    /* Platform's private data */
+    void *plat_priv;
 }  __cacheline_aligned;
 
 struct arch_vcpu

@@ -344,6 +344,7 @@ const void *dt_get_property(const struct dt_device_node *np,
 const struct dt_property *dt_find_property(const struct dt_device_node *np,
                                            const char *name, u32 *lenp);
 
+struct dt_device_node *dt_find_node_by_phandle(dt_phandle handle);
 
 /**
  * dt_property_read_u32 - Helper to read a u32 property.
@@ -353,6 +354,8 @@ const struct dt_property *dt_find_property(const struct dt_device_node *np,
  *
  * Return true if get the desired value.
  */
+bool_t dt_property_read_u32_array(const struct dt_device_node *np,
+                         const char *name, u32 *out_value, int count);
 bool_t dt_property_read_u32(const struct dt_device_node *np,
                             const char *name, u32 *out_value);
 /**
@@ -630,6 +633,17 @@ bool_t dt_device_is_available(const struct dt_device_node *device);
  * false otherwise.
  */
 bool_t dt_device_for_passthrough(const struct dt_device_node *device);
+
+/**
+ * dt_device_for_coproc - Check if a device is a coprocessor to be shared
+ * by CSF
+ *
+ * @device: Node to check
+ *
+ * Return true if the property "xen,coproc" is present in the node,
+ * false otherwise.
+ */
+ bool_t dt_device_for_coproc(const struct dt_device_node *device);
 
 /**
  * dt_match_node - Tell if a device_node has a matching of dt_device_match

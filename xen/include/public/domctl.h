@@ -1135,6 +1135,29 @@ struct xen_domctl_vuart_op {
                                  */
 };
 
+/* Attach a coproc to a guest. */
+struct xen_domctl_attach_coproc {
+    uint32_t size; /* length of the path */
+    XEN_GUEST_HANDLE_64(char) path; /* path to the device tree node */
+};
+typedef struct xen_domctl_attach_coproc xen_domctl_attach_coproc_t;
+DEFINE_XEN_GUEST_HANDLE(xen_domctl_attach_coproc_t);
+
+struct xen_domctl_platform {
+#define XEN_DOMCTL_PLATFORM_OP_PASSTHROUGH_DTDEV 0
+    uint32_t cmd;           /* XEN_DOMCTL_PLATFORM_OP_* */
+    union {
+        struct {
+            /* Length of the path. */
+            uint32_t size;
+            /* Path to the device tree node of the device
+             * being passed through
+             */
+            XEN_GUEST_HANDLE_64(char) path;
+        } passthrough_dtdev;
+    } u;
+};
+
 /* XEN_DOMCTL_vmtrace_op: Perform VM tracing operations. */
 struct xen_domctl_vmtrace_op {
     uint32_t cmd;           /* IN */
@@ -1253,6 +1276,8 @@ struct xen_domctl {
 #define XEN_DOMCTL_get_cpu_policy                82
 #define XEN_DOMCTL_set_cpu_policy                83
 #define XEN_DOMCTL_vmtrace_op                    84
+#define XEN_DOMCTL_platform                      85
+#define XEN_DOMCTL_attach_coproc                 86
 #define XEN_DOMCTL_gdbsx_guestmemio            1000
 #define XEN_DOMCTL_gdbsx_pausevcpu             1001
 #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
@@ -1313,6 +1338,8 @@ struct xen_domctl {
         struct xen_domctl_monitor_op        monitor_op;
         struct xen_domctl_psr_alloc         psr_alloc;
         struct xen_domctl_vuart_op          vuart_op;
+        struct xen_domctl_platform          domctl_platform;
+        struct xen_domctl_attach_coproc     attach_coproc;
         struct xen_domctl_vmtrace_op        vmtrace_op;
         uint8_t                             pad[128];
     } u;

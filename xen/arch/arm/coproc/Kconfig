@@ -1,0 +1,23 @@
+config HAS_VGPIO
+  bool "Enable GPIO virtualization driver"
+  default y
+  depends on HAS_COPROC
+  help
+    Enable GPIO virtualization driver. 
+    It allows guests to share gpio modules on selected platforms.
+
+config HAS_VGPIO_IMX
+  bool "Enable VGPIO support for the IMX platform"
+  default n
+  depends on HAS_VGPIO
+  help
+    Enable VGPIO support for the IMX platform. It allows guests to share
+    gpio modules pins on your platform.
+
+config HAS_VGPIO_RCAR
+  bool "Enable VGPIO support for the RCAR platform"
+  default y
+  depends on HAS_VGPIO
+  help
+    Enable VGPIO support for the RCAR platform. It allows guests to share
+    gpio modules pins on your platform.

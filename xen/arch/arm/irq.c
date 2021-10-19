@@ -29,6 +29,8 @@
 #include <asm/gic.h>
 #include <asm/vgic.h>
 
+#include "coproc/coproc.h"
+
 const unsigned int nr_irqs = NR_IRQS;
 
 static unsigned int local_irqs_type[NR_LOCAL_IRQS];
@@ -596,6 +598,15 @@ int route_irq_to_guest(struct domain *d, unsigned int virq,
         printk(XENLOG_G_ERR "the IRQ%u is not routable\n", irq);
         return -EINVAL;
     }
+
+#ifdef CONFIG_HAS_COPROC
+    if ( coproc_is_coproc_irq(irq) )
+    {
+        printk(XENLOG_G_INFO "IRQ[%u] routed by XEN to coproc\n", irq);
+        return retval;
+    }
+#endif
+
     desc = irq_to_desc(irq);
 
     action = xmalloc(struct irqaction);
@@ -630,8 +641,6 @@ int route_irq_to_guest(struct domain *d, unsigned int virq,
      *  - If it's the same domain -> Xen doesn't need to update the IRQ desc.
      *  For safety check if we are not trying to assign the IRQ to a
      *  different vIRQ.
-     *  - Otherwise -> For now, don't allow the IRQ to be shared between
-     *  Xen and domains.
      */
     if ( desc->action != NULL )
     {
