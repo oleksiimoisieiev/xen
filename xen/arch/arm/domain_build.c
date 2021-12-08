@@ -21,6 +21,7 @@
 #include <asm/device.h>
 #include <asm/kernel.h>
 #include <asm/setup.h>
+#include <asm/sci/sci.h>
 #include <asm/platform.h>
 #include <asm/psci.h>
 #include <asm/setup.h>
@@ -1538,6 +1539,10 @@ static int __init handle_device(struct domain *d, struct dt_device_node *dev,
                 return res;
             }
         }
+
+        res = sci_add_dt_device(d, dev);
+        if ( res < 0 )
+            return res;
     }
 
     res = handle_device_interrupts(d, dev, need_mapping);
@@ -2728,6 +2733,10 @@ int __init construct_dom0(struct domain *d)
         return rc;
 
     rc = platform_specific_mapping(d);
+    if ( rc < 0 )
+        return rc;
+
+    rc = sci_domain_init(d, sci_get_type());
     if ( rc < 0 )
         return rc;
 

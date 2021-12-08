@@ -50,6 +50,7 @@
 #include <asm/cpufeature.h>
 #include <asm/platform.h>
 #include <asm/procinfo.h>
+#include <asm/sci/sci.h>
 #include <asm/setup.h>
 #include <asm/tee/tee.h>
 #include <xsm/xsm.h>
@@ -983,6 +984,8 @@ void __init start_xen(unsigned long boot_phys_offset,
         printk(XENLOG_WARNING "Maximum number of vGIC IRQs exceeded.\n");
     dom0_cfg.arch.tee_type = tee_get_type();
     dom0_cfg.max_vcpus = dom0_max_vcpus();
+
+    dom0_cfg.arch.sci_type = sci_get_type();
 
     if ( iommu_enabled )
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;
