@@ -310,11 +310,15 @@ DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
 #define XEN_DOMCTL_CONFIG_TEE_NONE      0
 #define XEN_DOMCTL_CONFIG_TEE_OPTEE     1
 
+#define XEN_DOMCTL_CONFIG_SCI_NONE      0
+
 struct xen_arch_domainconfig {
     /* IN/OUT */
     uint8_t gic_version;
     /* IN */
     uint16_t tee_type;
+    /* IN */
+    uint8_t sci_type;
     /* IN */
     uint32_t nr_spis;
     /*
@@ -336,6 +340,12 @@ struct xen_arch_domainconfig {
      *
      */
     uint32_t clock_frequency;
+
+    /* Sets shared address to sw domains.
+     * This information is needed to set correct channel in Domain partial
+     * device-tree
+     */
+    uint64_t sci_agent_paddr;
 };
 #endif /* __XEN__ || __XEN_TOOLS__ */
 

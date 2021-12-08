@@ -477,6 +477,12 @@ S:	Supported
 F:	xen/arch/arm/tee/
 F:	xen/include/asm-arm/tee
 
+SCI MEDIATORS
+M:	Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+S:	Supported
+F:	xen/arch/arm/sci
+F:	xen/include/asm-arm/sci
+
 TOOLSTACK
 M:	Ian Jackson <iwj@xenproject.org>
 M:	Wei Liu <wl@xen.org>
