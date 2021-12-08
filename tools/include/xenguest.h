@@ -242,6 +242,8 @@ struct xc_dom_image {
 
     /* Number of vCPUs */
     unsigned int max_vcpus;
+
+    xen_pfn_t sci_shmem_gfn;
 };
 
 /* --- arch specific hooks ----------------------------------------- */
