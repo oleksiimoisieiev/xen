@@ -1307,6 +1307,9 @@ int xc_domctl_passthrough_dtdev(xc_interface *xch,
                                 uint32_t domid,
                                 char *path);
 
+int xc_domain_add_sci_device(xc_interface *xch,
+                              uint32_t domid, char *path);
+
 #if defined(__i386__) || defined(__x86_64__)
 /*
  * PC BIOS standard E820 types and structure.
