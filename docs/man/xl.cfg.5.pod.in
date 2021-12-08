@@ -1592,9 +1592,27 @@ This feature is a B<technology preview>.
 
 =back
 
-=back
+=item B<sci="STRING">
+
+B<Arm only> Set SCI type for the guest. SCI is System Control Protocol -
+allows domain to manage various functions that are provided by HW platform.
 
 =over 4
+
+=item B<none>
+
+Don't allow guest to use SCI if present on the platform. This is the default
+value.
+
+=item B<scmi-scp>
+
+Enables SCMI-SCP support for the guest. SCMI is System Control Management
+Inferface - allows domain to manage various functions that are provided by HW
+platform, such as clocks, resets and power-domains. Xen will mediate access to
+clocks, power-domains and resets between Domains and ATF. Disabled by default.
+SCP is used as transport.
+
+=back
 
 =item B<vgsx=[ "VGSX_SPEC_STRING", "VGSX_SPEC_STRING", ...]>
 
