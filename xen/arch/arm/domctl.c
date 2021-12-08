@@ -5,6 +5,7 @@
  */
 
 #include <asm/platform.h>
+#include <asm/sci/sci.h>
 #include <xen/errno.h>
 #include <xen/guest_access.h>
 #include <xen/hypercall.h>
@@ -186,7 +187,13 @@ long arch_do_domctl(struct xen_domctl *domctl, struct domain *d,
             rc = platform_do_domctl(domctl, d, u_domctl);
 
         if ( rc == -ENOSYS )
+        {
             rc = iommu_do_domctl(domctl, d, u_domctl);
+            if ( (rc) && (rc != -ENOSYS) )
+                return rc;
+
+            rc = sci_do_domctl(domctl, d, u_domctl);
+        }
 
 #ifdef CONFIG_HAS_COPROC
         if ( rc == -ENOSYS )
