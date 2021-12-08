@@ -440,6 +440,12 @@ TeeTypeNone TeeType = 0
 TeeTypeOptee TeeType = 1
 )
 
+type ArmSciType int
+const(
+ArmSciTypeNone ArmSciType = 0
+ArmSciTypeScmi ArmSciType = 1
+)
+
 type RdmReserve struct {
 Strategy RdmReserveStrategy
 Policy RdmReservePolicy
@@ -507,6 +513,7 @@ NestedHvm Defbool
 Apic Defbool
 DmRestrict Defbool
 Tee TeeType
+ArmSci ArmSciType
 ForceAssignWithoutIommu Defbool
 Type DomainType
 TypeUnion domainBuildInfoTypeUnion
