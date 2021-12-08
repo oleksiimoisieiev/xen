@@ -5,6 +5,7 @@
  */
 
 #include <asm/platform.h>
+#include <asm/sci/sci.h>
 #include <xen/errno.h>
 #include <xen/guest_access.h>
 #include <xen/hypercall.h>
@@ -176,6 +177,20 @@ long arch_do_domctl(struct xen_domctl *domctl, struct domain *d,
 
         return rc;
     }
+    case XEN_DOMCTL_add_sci_device:
+    {
+        int rc;
+        struct dt_device_node *dev;
+
+        rc = dt_find_node_by_gpath(domctl->u.sci_device_op.path,
+                                   domctl->u.sci_device_op.size,
+                                   &dev);
+        if ( rc )
+            return rc;
+
+        return sci_add_dt_device(d, dev);
+    }
+
     default:
     {
         int rc;

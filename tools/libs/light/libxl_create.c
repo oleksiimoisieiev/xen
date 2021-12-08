@@ -573,6 +573,37 @@ out:
     return ret;
 }
 
+static int map_sci_page(libxl__gc *gc, uint32_t domid, uint64_t paddr,
+                         uint64_t guest_addr)
+{
+    int ret;
+    uint64_t _paddr_pfn = paddr >> XC_PAGE_SHIFT;
+    uint64_t _guest_pfn = guest_addr >> XC_PAGE_SHIFT;
+
+    LOG(DEBUG, "iomem %"PRIx64, _paddr_pfn);
+
+    ret = xc_domain_iomem_permission(CTX->xch, domid, _paddr_pfn, 1, 1);
+    if (ret < 0) {
+        LOG(ERROR,
+              "failed give domain access to iomem page %"PRIx64,
+             _paddr_pfn);
+        return ret;
+    }
+
+    ret = xc_domain_memory_mapping(CTX->xch, domid,
+                                   _guest_pfn, _paddr_pfn,
+                                   1, 1);
+    if (ret < 0) {
+        LOG(ERROR,
+              "failed to map to domain iomem page %"PRIx64
+              " to guest address %"PRIx64,
+              _paddr_pfn, _guest_pfn);
+        return ret;
+    }
+
+    return 0;
+}
+
 int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
                        libxl__domain_build_state *state,
                        uint32_t *domid, bool soft_reset)
@@ -734,6 +765,16 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
         LOGED(ERROR, *domid, "domain move fail");
         rc = ERROR_FAIL;
         goto out;
+    }
+
+    if (state->sci_agent_paddr != 0) {
+        ret = map_sci_page(gc, *domid, state->sci_agent_paddr,
+                            state->sci_shmem_gfn << XC_PAGE_SHIFT);
+        if (ret < 0) {
+            LOGED(ERROR, *domid, "map scmi fail");
+            rc = ERROR_FAIL;
+            goto out;
+        }
     }
 
     dom_path = libxl__xs_get_dompath(gc, *domid);
@@ -1787,17 +1828,23 @@ static void libxl__add_dtdevs(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
 {
     AO_GC;
     libxl__ao_device *aodev = libxl__multidev_prepare(multidev);
-    int i, rc = 0;
+    int i, rc = 0, rc_scmi = 0;
 
     for (i = 0; i < d_config->num_dtdevs; i++) {
         const libxl_device_dtdev *dtdev = &d_config->dtdevs[i];
 
         LOGD(DEBUG, domid, "Assign device \"%s\" to domain", dtdev->path);
         rc = xc_assign_dt_device(CTX->xch, domid, dtdev->path);
-        if (rc < 0) {
-            LOGD(ERROR, domid, "xc_assign_dtdevice failed: %d", rc);
+        rc_scmi = xc_domain_add_sci_device(CTX->xch, domid, dtdev->path);
+
+        if ((rc < 0) && (rc_scmi < 0)) {
+            LOGD(ERROR, domid, "xc_assign_dt_device failed: %d; xc_domain_add_scmi_device failed: %d",
+                 rc, rc_scmi);
             goto out;
         }
+
+        if (rc)
+            rc = rc_scmi;
     }
 
 out:

@@ -14,6 +14,8 @@
         (type *)( (char *)__mptr - offsetof(type,member) );})
 #endif
 
+#define SCMI_NODE_PATH      "/firmware/scmi"
+
 static const char *gicv_to_string(libxl_gic_version gic_version)
 {
     switch (gic_version) {
@@ -143,6 +145,19 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         return ERROR_FAIL;
     }
 
+    switch (d_config->b_info.sci) {
+    case LIBXL_SCI_TYPE_NONE:
+        config->arch.sci_type = XEN_DOMCTL_CONFIG_SCI_NONE;
+        break;
+    case LIBXL_SCI_TYPE_SCMI_SMC:
+        config->arch.sci_type = XEN_DOMCTL_CONFIG_SCI_SCMI_SMC;
+        break;
+    default:
+        LOG(ERROR, "Unknown SCI type %d",
+            d_config->b_info.sci);
+        return ERROR_FAIL;
+    }
+
     if (d_config->num_vgsxs) {
         libxl_device_vgsx *vgsx;
 
@@ -172,6 +187,7 @@ int libxl__arch_domain_save_config(libxl__gc *gc,
     }
 
     state->clock_frequency = config->arch.clock_frequency;
+    state->sci_agent_paddr = config->arch.sci_agent_paddr;
 
     return 0;
 }
@@ -527,9 +543,6 @@ static int make_optee_node(libxl__gc *gc, void *fdt)
     int res;
     LOG(DEBUG, "Creating OP-TEE node in dtb");
 
-    res = fdt_begin_node(fdt, "firmware");
-    if (res) return res;
-
     res = fdt_begin_node(fdt, "optee");
     if (res) return res;
 
@@ -537,9 +550,6 @@ static int make_optee_node(libxl__gc *gc, void *fdt)
     if (res) return res;
 
     res = fdt_property_string(fdt, "method", "hvc");
-    if (res) return res;
-
-    res = fdt_end_node(fdt);
     if (res) return res;
 
     res = fdt_end_node(fdt);
@@ -909,10 +919,9 @@ static int copy_node(libxl__gc *gc, void *fdt, void *pfdt,
     return 0;
 }
 
-static int copy_node_by_path(libxl__gc *gc, const char *path,
-                             void *fdt, void *pfdt)
+static int get_path_nodeoff(const char *path, void *pfdt)
 {
-    int nodeoff, r;
+    int nodeoff;
     const char *name = strrchr(path, '/');
 
     if (!name)
@@ -932,8 +941,97 @@ static int copy_node_by_path(libxl__gc *gc, const char *path,
     if (strcmp(fdt_get_name(pfdt, nodeoff, NULL), name))
         return -FDT_ERR_NOTFOUND;
 
+    return nodeoff;
+}
+
+static int copy_node_by_path(libxl__gc *gc, const char *path,
+                             void *fdt, void *pfdt)
+{
+    int nodeoff, r;
+
+    nodeoff = get_path_nodeoff(path, pfdt);
+    if (nodeoff < 0)
+        return nodeoff;
+
     r = copy_node(gc, fdt, pfdt, nodeoff, 0);
     if (r) return r;
+
+    return 0;
+}
+
+static int get_node_phandle(const char *path, void *pfdt, uint32_t *phandle)
+{
+    int nodeoff;
+    const char *name = strrchr(path, '/');
+
+    if (!name)
+        return -FDT_ERR_INTERNAL;
+
+    name++;
+    nodeoff = fdt_path_offset(pfdt, path);
+    if (nodeoff < 0)
+        return nodeoff;
+
+    *phandle = fdt_get_phandle(pfdt, nodeoff);
+    return 0;
+}
+
+static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
+                           struct xc_dom_image *dom)
+{
+    int res;
+    char buf[64];
+    uint32_t phandle = 0;
+
+    res = get_node_phandle("/scp-shmem", pfdt, &phandle);
+    if (res) return res;
+
+    snprintf(buf, sizeof(buf), "scp-shmem@%lx",
+             dom->sci_shmem_gfn << XC_PAGE_SHIFT);
+    res = fdt_begin_node(fdt, buf);
+    if (res) return res;
+
+    res = fdt_property_compat(gc, fdt, 1, "arm,scmi-shmem");
+    if (res) return res;
+
+    res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS,
+                    GUEST_ROOT_SIZE_CELLS, 1,
+                    dom->sci_shmem_gfn << XC_PAGE_SHIFT, XC_PAGE_SHIFT);
+    if (res) return res;
+
+    LOG(DEBUG, "scmi: setting phandle = %u\n", phandle);
+    res = fdt_property_cell(fdt, "phandle", phandle);
+    if (res) return res;
+
+    res = fdt_end_node(fdt);
+    if (res) return res;
+
+    return 0;
+}
+
+static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
+                              int sci)
+{
+    int res;
+
+    if ((tee != LIBXL_TEE_TYPE_OPTEE) && (sci != LIBXL_SCI_TYPE_NONE))
+        return 0;
+
+    res = fdt_begin_node(fdt, "firmware");
+    if (res) return res;
+
+    if (tee == LIBXL_TEE_TYPE_OPTEE) {
+       res = make_optee_node(gc, fdt);
+       if (res) return res;
+    }
+
+    if (sci == LIBXL_SCI_TYPE_SCMI_SMC) {
+        res = copy_node_by_path(gc, SCMI_NODE_PATH, fdt, pfdt);
+        if (res) return res;
+    }
+
+    res = fdt_end_node(fdt);
+    if (res) return res;
 
     return 0;
 }
@@ -1162,12 +1260,14 @@ next_resize:
         if (info->arch_arm.vuart == LIBXL_VUART_TYPE_SBSA_UART)
             FDT( make_vpl011_uart_node(gc, fdt, ainfo, dom) );
 
-        if (info->tee == LIBXL_TEE_TYPE_OPTEE)
-            FDT( make_optee_node(gc, fdt) );
-        
         if (pfdt) {
             FDT( copy_coprocs_nodes(gc, fdt, pfdt, info) );
         }
+
+        FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->sci) );
+
+        if (info->sci == LIBXL_SCI_TYPE_SCMI_SMC)
+            FDT( make_scmi_shmem_node(gc, fdt, pfdt, dom) );
 
         if (libxl_defbool_val(info->arch_arm.virtio)) {
             libxl_domain_config *d_config =
