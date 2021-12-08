@@ -1407,6 +1407,9 @@ typedef struct {
     /* Whether this domain is being migrated/restored, or booting fresh.  Only
      * applicable to the primary domain, not support domains (e.g. stub QEMU). */
     bool restore;
+
+    /* arm_sci channel paddr to be set to device-tree node */
+    uint64_t arm_sci_agent_paddr;
 } libxl__domain_build_state;
 
 _hidden void libxl__domain_build_state_init(libxl__domain_build_state *s);
