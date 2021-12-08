@@ -89,6 +89,10 @@ struct arch_domain
 #ifdef CONFIG_TEE
     void *tee;
 #endif
+
+#ifdef CONFIG_ARM_SCI
+    void *sci;
+#endif
 }  __cacheline_aligned;
 
 struct arch_vcpu
