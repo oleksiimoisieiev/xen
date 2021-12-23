@@ -109,7 +109,7 @@ struct arch_domain
     void *tee;
 #endif
 
-#ifdef CONFIG_SCI
+#ifdef CONFIG_ARM_SCI
     void *sci;
 #endif
 

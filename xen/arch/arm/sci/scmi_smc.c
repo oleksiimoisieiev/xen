@@ -329,7 +329,7 @@ static struct scmi_channel *aquire_scmi_channel(int domain_id)
     struct scmi_channel *curr;
     bool found = false;
 
-    ASSERT(domain_id != DOMID_INVALID && domain_id > 0);
+    ASSERT(domain_id != DOMID_INVALID && domain_id >= 0);
 
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
@@ -558,8 +558,11 @@ static int scmi_domain_init(struct domain *d)
     struct scmi_channel *channel;
     int ret;
 
-    if ( !scmi_data.initialized )
+    if ( !scmi_data.initialized ) {
         return 0;
+	}
+
+	printk(XENLOG_INFO "scmi: domain_id = %d\n", d->domain_id);
 
     channel = aquire_scmi_channel(d->domain_id);
     if ( IS_ERR_OR_NULL(channel) )
@@ -758,7 +761,7 @@ static int scmi_get_channel_paddr(void *scmi_ops,
     if ( !agent_channel )
         return -EINVAL;
 
-    config->sci_agent_paddr = agent_channel->paddr;
+    config->arm_sci_agent_paddr = agent_channel->paddr;
     return 0;
 }
 
@@ -779,7 +782,7 @@ static const struct sci_mediator_ops scmi_ops =
     .get_channel_info = scmi_get_channel_paddr
 };
 
-REGISTER_SCI_MEDIATOR(scmi_smc, "SCMI-SMC", XEN_DOMCTL_CONFIG_SCI_SCMI_SMC,
+REGISTER_SCI_MEDIATOR(scmi_smc, "SCMI-SMC", XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC,
                       scmi_smc_match, &scmi_ops);
 
 /*

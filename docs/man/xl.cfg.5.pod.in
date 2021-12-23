@@ -1592,17 +1592,17 @@ This feature is a B<technology preview>.
 
 =back
 
-=item B<sci="STRING">
+=item B<arm_sci="STRING">
 
-B<Arm only> Set SCI type for the guest. SCI is System Control Protocol -
+B<Arm only> Set ARM_SCI type for the guest. ARM_SCI is System Control Protocol
 allows domain to manage various functions that are provided by HW platform.
 
 =over 4
 
 =item B<none>
 
-Don't allow guest to use SCI if present on the platform. This is the default
-value.
+Don't allow guest to use ARM_SCI if present on the platform. This is the
+default value.
 
 =item B<scmi-scp>
 

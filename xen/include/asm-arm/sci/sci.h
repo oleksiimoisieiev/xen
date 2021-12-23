@@ -24,7 +24,7 @@
 #include <xen/types.h>
 #include <xen/device_tree.h>
 
-#ifdef CONFIG_SCI
+#ifdef CONFIG_ARM_SCI
 
 struct sci_mediator_ops {
 
@@ -79,7 +79,7 @@ struct sci_mediator_desc {
 
     /*
      * ID of SCI. Corresponds to xen_arch_domainconfig.sci_type.
-     * Should be one of XEN_DOMCTL_CONFIG_SCI_xxx
+     * Should be one of XEN_DOMCTL_CONFIG_ARM_SCI_xxx
      */
     uint16_t sci_type;
 
@@ -110,7 +110,7 @@ __section(".scimediator.info") = {                                  \
 
 static inline int sci_domain_init(struct domain *d, uint16_t sci_type)
 {
-    if ( likely(sci_type == XEN_DOMCTL_CONFIG_SCI_NONE) )
+    if ( likely(sci_type == XEN_DOMCTL_CONFIG_ARM_SCI_NONE) )
         return 0;
 
     return -ENODEV;
@@ -144,10 +144,10 @@ static inline int sci_get_channel_info(struct domain *d,
 
 static inline uint16_t sci_get_type(void)
 {
-    return XEN_DOMCTL_CONFIG_SCI_NONE;
+    return XEN_DOMCTL_CONFIG_ARM_SCI_NONE;
 }
 
-#endif  /* CONFIG_SCI */
+#endif  /* CONFIG_ARM_SCI */
 
 #endif /* __ASM_ARM_SCI_H */
 

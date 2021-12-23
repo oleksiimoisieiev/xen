@@ -985,7 +985,7 @@ void __init start_xen(unsigned long boot_phys_offset,
     dom0_cfg.arch.tee_type = tee_get_type();
     dom0_cfg.max_vcpus = dom0_max_vcpus();
 
-    dom0_cfg.arch.sci_type = sci_get_type();
+    dom0_cfg.arch.arm_sci_type = sci_get_type();
 
     if ( iommu_enabled )
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;

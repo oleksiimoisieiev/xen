@@ -145,16 +145,16 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         return ERROR_FAIL;
     }
 
-    switch (d_config->b_info.sci) {
-    case LIBXL_SCI_TYPE_NONE:
-        config->arch.sci_type = XEN_DOMCTL_CONFIG_SCI_NONE;
+    switch (d_config->b_info.arm_sci) {
+    case LIBXL_ARM_SCI_TYPE_NONE:
+        config->arch.arm_sci_type = XEN_DOMCTL_CONFIG_ARM_SCI_NONE;
         break;
-    case LIBXL_SCI_TYPE_SCMI_SMC:
-        config->arch.sci_type = XEN_DOMCTL_CONFIG_SCI_SCMI_SMC;
+    case LIBXL_ARM_SCI_TYPE_SCMI_SMC:
+        config->arch.arm_sci_type = XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC;
         break;
     default:
-        LOG(ERROR, "Unknown SCI type %d",
-            d_config->b_info.sci);
+        LOG(ERROR, "Unknown ARM_SCI type %d",
+            d_config->b_info.arm_sci);
         return ERROR_FAIL;
     }
 
@@ -187,7 +187,7 @@ int libxl__arch_domain_save_config(libxl__gc *gc,
     }
 
     state->clock_frequency = config->arch.clock_frequency;
-    state->sci_agent_paddr = config->arch.sci_agent_paddr;
+    state->arm_sci_agent_paddr = config->arch.arm_sci_agent_paddr;
 
     return 0;
 }
@@ -1014,7 +1014,7 @@ static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
 {
     int res;
 
-    if ((tee != LIBXL_TEE_TYPE_OPTEE) && (sci != LIBXL_SCI_TYPE_NONE))
+    if ((tee == LIBXL_TEE_TYPE_NONE) && (sci == LIBXL_ARM_SCI_TYPE_NONE))
         return 0;
 
     res = fdt_begin_node(fdt, "firmware");
@@ -1025,7 +1025,7 @@ static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
        if (res) return res;
     }
 
-    if (sci == LIBXL_SCI_TYPE_SCMI_SMC) {
+    if (sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC) {
         res = copy_node_by_path(gc, SCMI_NODE_PATH, fdt, pfdt);
         if (res) return res;
     }
@@ -1264,9 +1264,9 @@ next_resize:
             FDT( copy_coprocs_nodes(gc, fdt, pfdt, info) );
         }
 
-        FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->sci) );
+        FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->arm_sci) );
 
-        if (info->sci == LIBXL_SCI_TYPE_SCMI_SMC)
+        if (info->arm_sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC)
             FDT( make_scmi_shmem_node(gc, fdt, pfdt, dom) );
 
         if (libxl_defbool_val(info->arch_arm.virtio)) {

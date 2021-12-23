@@ -683,10 +683,10 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
         return -EINVAL;
     }
 
-    if ( config->arch.sci_type != XEN_DOMCTL_CONFIG_SCI_NONE &&
-         config->arch.sci_type != sci_get_type() )
+    if ( config->arch.arm_sci_type != XEN_DOMCTL_CONFIG_ARM_SCI_NONE &&
+         config->arch.arm_sci_type != sci_get_type() )
     {
-        dprintk(XENLOG_INFO, "Unsupported SCI type\n");
+        dprintk(XENLOG_INFO, "Unsupported ARM_SCI type\n");
         return -EINVAL;
     }
 
@@ -767,9 +767,9 @@ int arch_domain_create(struct domain *d,
         if ( !vgic_reserve_virq(d, GUEST_EVTCHN_PPI) )
             BUG();
 
-        if ( config->arch.sci_type != XEN_DOMCTL_CONFIG_SCI_NONE )
+        if ( config->arch.arm_sci_type != XEN_DOMCTL_CONFIG_ARM_SCI_NONE )
         {
-            if ( (rc = sci_domain_init(d, config->arch.sci_type)) != 0)
+            if ( (rc = sci_domain_init(d, config->arch.arm_sci_type)) != 0)
                 goto fail;
 
             if ( (rc = sci_get_channel_info(d, &config->arch)) != 0)

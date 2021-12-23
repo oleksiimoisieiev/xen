@@ -767,8 +767,8 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
         goto out;
     }
 
-    if (state->sci_agent_paddr != 0) {
-        ret = map_sci_page(gc, *domid, state->sci_agent_paddr,
+    if (state->arm_sci_agent_paddr != 0) {
+        ret = map_sci_page(gc, *domid, state->arm_sci_agent_paddr,
                             state->sci_shmem_gfn << XC_PAGE_SHIFT);
         if (ret < 0) {
             LOGED(ERROR, *domid, "map scmi fail");

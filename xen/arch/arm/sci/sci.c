@@ -37,7 +37,7 @@ bool sci_handle_call(struct domain *d, void *args)
 
 int sci_domain_init(struct domain *d, uint16_t sci_type)
 {
-    if ( sci_type == XEN_DOMCTL_CONFIG_SCI_NONE )
+    if ( sci_type == XEN_DOMCTL_CONFIG_ARM_SCI_NONE )
         return 0;
 
     if ( !cur_mediator )
@@ -86,7 +86,7 @@ int sci_get_channel_info(struct domain *d,
 uint16_t sci_get_type(void)
 {
     if ( !cur_mediator )
-        return XEN_DOMCTL_CONFIG_SCI_NONE;
+        return XEN_DOMCTL_CONFIG_ARM_SCI_NONE;
 
     return cur_mediator->sci_type;
 }
