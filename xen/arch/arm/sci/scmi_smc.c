@@ -329,7 +329,7 @@ static struct scmi_channel *aquire_scmi_channel(int domain_id)
     struct scmi_channel *curr;
     bool found = false;
 
-    ASSERT(domain_id != DOMID_INVALID && domain_id > 0);
+    ASSERT(domain_id != DOMID_INVALID && domain_id >= 0);
 
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
@@ -558,8 +558,11 @@ static int scmi_domain_init(struct domain *d)
     struct scmi_channel *channel;
     int ret;
 
-    if ( !scmi_data.initialized )
+    if ( !scmi_data.initialized ) {
         return 0;
+	}
+
+	printk(XENLOG_INFO "scmi: domain_id = %d\n", d->domain_id);
 
     channel = aquire_scmi_channel(d->domain_id);
     if ( IS_ERR_OR_NULL(channel) )

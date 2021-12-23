@@ -1014,7 +1014,7 @@ static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
 {
     int res;
 
-    if ((tee != LIBXL_TEE_TYPE_OPTEE) && (sci != LIBXL_SCI_TYPE_NONE))
+    if ((tee == LIBXL_TEE_TYPE_NONE) && (sci == LIBXL_SCI_TYPE_NONE))
         return 0;
 
     res = fdt_begin_node(fdt, "firmware");
