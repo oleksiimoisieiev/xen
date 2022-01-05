@@ -22,6 +22,8 @@
 #include "coproc_vgpio_rcar.h"
 
 #define DT_MATCH_COPROC_VGPIO_RCAR DT_MATCH_COMPATIBLE("renesas,gpio-r8a7795")
+#define DT_MATCH_COPROC_VGPIO_RCAR_7796 DT_MATCH_COMPATIBLE("renesas,gpio-r8a7796")
+#define DT_MATCH_COPROC_VGPIO_RCAR_77961 DT_MATCH_COMPATIBLE("renesas,gpio-r8a77961")
 
 /* Change this to #define VGPIO_DEBUG here to enable more debug messages */
 #undef VGPIO_DEBUG
@@ -235,6 +237,8 @@ out_release_coproc_vgpio:
 static const struct dt_device_match coproc_vgpio_rcar_dt_match[] __initconst =
 {
     DT_MATCH_COPROC_VGPIO_RCAR,
+    DT_MATCH_COPROC_VGPIO_RCAR_7796,
+    DT_MATCH_COPROC_VGPIO_RCAR_77961,
     { /* sentinel */ },
 };
 
