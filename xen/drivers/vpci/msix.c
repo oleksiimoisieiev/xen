@@ -169,7 +169,8 @@ static struct vpci_msix_entry *get_entry(struct vpci_msix *msix,
 {
     paddr_t start;
 
-    if ( is_hardware_domain(current->domain) )
+    if ( pci_is_hardware_domain(current->domain, msix->pdev->seg,
+                                msix->pdev->bus) )
         start = vmsix_table_addr(msix->pdev->vpci, VPCI_MSIX_TABLE);
     else
         start = vmsix_guest_table_addr(msix->pdev->vpci, VPCI_MSIX_TABLE);
@@ -332,8 +333,9 @@ static int cf_check msix_write(
         unsigned int idx = addr - vmsix_table_addr(vpci, VPCI_MSIX_PBA);
         const void __iomem *pba = get_pba(vpci);
 
-        if ( !is_hardware_domain(d) )
-            /* Ignore writes to PBA for DomUs, it's behavior is undefined. */
+        if (pci_is_hardware_domain(d, msix->pdev->seg, msix->pdev->bus))
+            /* Ignore writes to PBA for DomUs, it's behavior is undefined.
+             */
             return X86EMUL_OKAY;
 
         if ( !pba )
