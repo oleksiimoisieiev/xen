@@ -761,7 +761,7 @@ static int scmi_get_channel_paddr(void *scmi_ops,
     if ( !agent_channel )
         return -EINVAL;
 
-    config->sci_agent_paddr = agent_channel->paddr;
+    config->arm_sci_agent_paddr = agent_channel->paddr;
     return 0;
 }
 
@@ -782,7 +782,7 @@ static const struct sci_mediator_ops scmi_ops =
     .get_channel_info = scmi_get_channel_paddr
 };
 
-REGISTER_SCI_MEDIATOR(scmi_smc, "SCMI-SMC", XEN_DOMCTL_CONFIG_SCI_SCMI_SMC,
+REGISTER_SCI_MEDIATOR(scmi_smc, "SCMI-SMC", XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC,
                       scmi_smc_match, &scmi_ops);
 
 /*

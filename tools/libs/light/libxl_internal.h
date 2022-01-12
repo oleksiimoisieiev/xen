@@ -1400,8 +1400,8 @@ typedef struct {
      * applicable to the primary domain, not support domains (e.g. stub QEMU). */
     bool restore;
 
-    /* sci channel paddr to be set to device-tree node */
-    uint64_t sci_agent_paddr;
+    /* arm_sci channel paddr to be set to device-tree node */
+    uint64_t arm_sci_agent_paddr;
     xen_pfn_t sci_shmem_gfn;
 } libxl__domain_build_state;
 
