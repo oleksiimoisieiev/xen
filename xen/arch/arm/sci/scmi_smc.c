@@ -291,11 +291,13 @@ static struct scmi_channel *get_channel_by_id(uint8_t chan_id)
 
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
+    {
         if ( curr->chan_id == chan_id )
         {
             found = true;
             break;
         }
+    }
 
     spin_unlock(&scmi_data.channel_list_lock);
     if ( found )
@@ -311,11 +313,13 @@ static struct scmi_channel *get_channel_by_domain(uint8_t domain_id)
 
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
+    {
         if ( curr->domain_id == domain_id )
         {
             found = true;
             break;
         }
+    }
 
     spin_unlock(&scmi_data.channel_list_lock);
     if ( found )
@@ -333,6 +337,7 @@ static struct scmi_channel *aquire_scmi_channel(int domain_id)
 
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
+    {
         if ( (curr->domain_id == DOMID_INVALID)
             && (curr->chan_id != HYP_CHANNEL) )
         {
@@ -340,6 +345,7 @@ static struct scmi_channel *aquire_scmi_channel(int domain_id)
             found = true;
             break;
         }
+    }
 
     spin_unlock(&scmi_data.channel_list_lock);
     if ( found )
