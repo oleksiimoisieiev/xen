@@ -718,7 +718,6 @@ static void scmi_domain_destroy(struct domain *d)
 
     unmap_channel_from_domain(d, channel->paddr, PAGE_SIZE);
     spin_unlock(&channel->lock);
-    return;
 }
 
 static bool scmi_handle_call(struct domain *d, void *args)
