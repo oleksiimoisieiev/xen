@@ -39,7 +39,7 @@ struct sci_mediator_ops {
      * SCI support so mediator can inform SCP-firmware about new
      * guest and create own structures for the new domain.
      */
-    int (*domain_init)(struct domain *d);
+    int (*domain_init)(struct domain *d, struct xen_arch_domainconfig *config);
 
     /*
      * Called during domain destruction, releases all resources, that
@@ -63,11 +63,6 @@ struct sci_mediator_ops {
 
     /* Handle call for current domain */
     bool (*handle_call)(struct domain *d, void *regs);
-
-    /* Gets channel configuration and store it in domainconfig */
-    int (*get_channel_info)(void *sci_ops,
-                            struct xen_arch_domainconfig *config);
-
 };
 
 struct sci_mediator_desc {
@@ -88,13 +83,12 @@ struct sci_mediator_desc {
 
 };
 
-int sci_domain_init(struct domain *d, uint16_t sci_type);
+int sci_domain_init(struct domain *d, uint16_t sci_type,
+                    struct xen_arch_domainconfig *config);
 void sci_domain_destroy(struct domain *d);
 int sci_add_dt_device(struct domain *d, struct dt_device_node *dev);
 int sci_relinquish_resources(struct domain *d);
 bool sci_handle_call(struct domain *d, void *args);
-int sci_get_channel_info(struct domain *d,
-                         struct xen_arch_domainconfig *config);
 uint16_t sci_get_type(void);
 
 #define REGISTER_SCI_MEDIATOR(_name, _namestr, _type, _match, _ops) \
@@ -108,7 +102,8 @@ __section(".scimediator.info") = {                                  \
 
 #else
 
-static inline int sci_domain_init(struct domain *d, uint16_t sci_type)
+static inline int sci_domain_init(struct domain *d, uint16_t sci_type,
+                    struct xen_arch_domainconfig *config)
 {
     if ( likely(sci_type == XEN_DOMCTL_CONFIG_ARM_SCI_NONE) )
         return 0;
@@ -134,12 +129,6 @@ static inline int sci_relinquish_resources(struct domain *d)
 static inline bool sci_handle_call(struct domain *d, void *args)
 {
     return false;
-}
-
-static inline int sci_get_channel_info(struct domain *d,
-                                       struct xen_arch_domainconfig *config)
-{
-    return 0;
 }
 
 static inline uint16_t sci_get_type(void)

@@ -2736,7 +2736,7 @@ int __init construct_dom0(struct domain *d)
     if ( rc < 0 )
         return rc;
 
-    rc = sci_domain_init(d, sci_get_type());
+    rc = sci_domain_init(d, sci_get_type(), NULL);
     if ( rc < 0 )
         return rc;
 
