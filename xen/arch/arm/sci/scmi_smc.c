@@ -735,7 +735,7 @@ static bool scmi_handle_call(struct domain *d, void *args)
 
     if ( agent_channel->func_id != regs->x0 )
     {
-        printk(XENLOG_ERR "scmi: func_id mismatch, exiting\n");
+        res = false;
         goto unlock;
     }
 
