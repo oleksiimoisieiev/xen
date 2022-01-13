@@ -17,6 +17,7 @@
  * GNU General Public License for more details.
  */
 
+#include <xen/acpi.h>
 #include <xen/errno.h>
 #include <xen/init.h>
 #include <xen/sched.h>
@@ -96,9 +97,10 @@ static int __init sci_init(void)
     const struct sci_mediator_desc *desc;
     struct dt_device_node *dt = NULL;
 
+
     for ( desc = _sscimediator; desc != _escimediator; desc++ )
     {
-        if ( likely(dt_host) )
+        if ( acpi_disabled )
         {
             dt = dt_find_matching_node(dt_host, desc->dt_match);
             if ( !dt )
