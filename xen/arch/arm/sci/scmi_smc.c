@@ -219,9 +219,9 @@ static int check_scmi_status(int scmi_status)
         return -ENXIO;
     case SCMI_PROTOCOL_ERROR:
         return -EBADMSG;
+    default:
+        return -EINVAL;
     }
-
-    return -EINVAL;
 }
 
 static int get_smc_response(struct scmi_channel *chan_info,
