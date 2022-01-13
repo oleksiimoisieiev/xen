@@ -769,10 +769,8 @@ int arch_domain_create(struct domain *d,
 
         if ( config->arch.arm_sci_type != XEN_DOMCTL_CONFIG_ARM_SCI_NONE )
         {
-            if ( (rc = sci_domain_init(d, config->arch.arm_sci_type)) != 0)
-                goto fail;
-
-            if ( (rc = sci_get_channel_info(d, &config->arch)) != 0)
+            if ( (rc = sci_domain_init(d, config->arch.arm_sci_type,
+                                       &config->arch)) != 0)
                 goto fail;
         }
     }

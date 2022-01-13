@@ -219,9 +219,9 @@ static int check_scmi_status(int scmi_status)
         return -ENXIO;
     case SCMI_PROTOCOL_ERROR:
         return -EBADMSG;
+    default:
+        return -EINVAL;
     }
-
-    return -EINVAL;
 }
 
 static int get_smc_response(struct scmi_channel *chan_info,
@@ -552,16 +552,16 @@ clean:
     return ret == 0;
 }
 
-static int scmi_domain_init(struct domain *d)
+static int scmi_domain_init(struct domain *d,
+                           struct xen_arch_domainconfig *config)
 {
     struct scmi_channel *channel;
     int ret;
 
-    if ( !scmi_data.initialized ) {
+    if ( !scmi_data.initialized )
         return 0;
-	}
 
-	printk(XENLOG_INFO "scmi: domain_id = %d\n", d->domain_id);
+    printk(XENLOG_INFO "scmi: domain_id = %d\n", d->domain_id);
 
     channel = aquire_scmi_channel(d->domain_id);
     if ( IS_ERR_OR_NULL(channel) )
@@ -589,6 +589,8 @@ static int scmi_domain_init(struct domain *d)
     }
 
     d->arch.sci = channel;
+    if ( config )
+        config->arm_sci_agent_paddr = channel->paddr;
 
     return 0;
 error:
@@ -716,7 +718,6 @@ static void scmi_domain_destroy(struct domain *d)
 
     unmap_channel_from_domain(d, channel->paddr, PAGE_SIZE);
     spin_unlock(&channel->lock);
-    return;
 }
 
 static bool scmi_handle_call(struct domain *d, void *args)
@@ -752,18 +753,6 @@ unlock:
     return res;
 }
 
-static int scmi_get_channel_paddr(void *scmi_ops,
-                           struct xen_arch_domainconfig *config)
-{
-    struct scmi_channel *agent_channel = scmi_ops;
-
-    if ( !agent_channel )
-        return -EINVAL;
-
-    config->arm_sci_agent_paddr = agent_channel->paddr;
-    return 0;
-}
-
 static const struct dt_device_match scmi_smc_match[] __initconst =
 {
     DT_MATCH_SCMI_SMC,
@@ -778,7 +767,6 @@ static const struct sci_mediator_ops scmi_ops =
     .add_dt_device = scmi_add_dt_device,
     .relinquish_resources = scmi_relinquish_resources,
     .handle_call = scmi_handle_call,
-    .get_channel_info = scmi_get_channel_paddr
 };
 
 REGISTER_SCI_MEDIATOR(scmi_smc, "SCMI-SMC", XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC,

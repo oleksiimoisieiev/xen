@@ -36,7 +36,8 @@ bool sci_handle_call(struct domain *d, void *args)
     return cur_mediator->ops->handle_call(d, args);
 }
 
-int sci_domain_init(struct domain *d, uint16_t sci_type)
+int sci_domain_init(struct domain *d, uint16_t sci_type,
+                    struct xen_arch_domainconfig *config)
 {
     if ( sci_type == XEN_DOMCTL_CONFIG_ARM_SCI_NONE )
         return 0;
@@ -47,7 +48,7 @@ int sci_domain_init(struct domain *d, uint16_t sci_type)
     if ( cur_mediator->sci_type != sci_type )
         return -EINVAL;
 
-    return cur_mediator->ops->domain_init(d);
+    return cur_mediator->ops->domain_init(d, config);
 }
 
 void sci_domain_destroy(struct domain *d)
@@ -73,15 +74,6 @@ int sci_add_dt_device(struct domain *d, struct dt_device_node *dev)
         return 0;
 
     return cur_mediator->ops->add_dt_device(d, dev);
-}
-
-int sci_get_channel_info(struct domain *d,
-                         struct xen_arch_domainconfig *config)
-{
-    if ( !cur_mediator )
-        return 0;
-
-    return cur_mediator->ops->get_channel_info(d->arch.sci, config);
 }
 
 uint16_t sci_get_type(void)
