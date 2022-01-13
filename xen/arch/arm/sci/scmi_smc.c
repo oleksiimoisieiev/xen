@@ -104,7 +104,7 @@ struct scmi_channel {
     int chan_id;
     int agent_id;
     uint32_t func_id;
-    int domain_id;
+    domid_t domain_id;
     uint64_t paddr;
     struct scmi_shared_mem *shmem;
     spinlock_t lock;
@@ -306,7 +306,7 @@ static struct scmi_channel *get_channel_by_id(uint8_t chan_id)
     return NULL;
 }
 
-static struct scmi_channel *get_channel_by_domain(uint8_t domain_id)
+static struct scmi_channel *get_channel_by_domain(domid_t domain_id)
 {
     struct scmi_channel *curr;
     bool found = false;
@@ -328,7 +328,7 @@ static struct scmi_channel *get_channel_by_domain(uint8_t domain_id)
     return NULL;
 }
 
-static struct scmi_channel *aquire_scmi_channel(int domain_id)
+static struct scmi_channel *aquire_scmi_channel(domid_t domain_id)
 {
     struct scmi_channel *curr;
     bool found = false;
