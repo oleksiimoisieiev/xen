@@ -404,8 +404,7 @@ static int unmap_channel_from_domain(struct domain *d, uint64_t addr,
                 paddr_to_pfn(PAGE_ALIGN(addr + len -1)));
 }
 
-static int dt_update_domain_range(struct domain *d, uint64_t addr,
-                                  uint64_t size)
+static int dt_update_domain_range(uint64_t addr, uint64_t size)
 {
     struct dt_device_node *shmem_node;
     __be32 *hw_reg;
@@ -578,7 +577,7 @@ static int scmi_domain_init(struct domain *d)
         if ( IS_ERR_VALUE(ret) )
             goto error;
 
-        ret = dt_update_domain_range(d, channel->paddr, PAGE_SIZE);
+        ret = dt_update_domain_range(channel->paddr, PAGE_SIZE);
         if ( IS_ERR_VALUE(ret) )
         {
             int rc = unmap_channel_from_domain(d, channel->paddr, PAGE_SIZE);
