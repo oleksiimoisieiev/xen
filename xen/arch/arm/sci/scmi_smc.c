@@ -79,12 +79,6 @@ typedef struct scmi_msg_header {
     uint8_t protocol;
 } scmi_msg_header_t;
 
-typedef struct scmi_perms_tx {
-    uint32_t agent_id;
-    uint32_t device_id;
-    uint32_t flags;
-} scmi_perms_tx_t;
-
 #define SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE   BIT(0, UL)
 #define SCMI_SHMEM_CHAN_STAT_CHANNEL_ERROR  BIT(1, UL)
 
@@ -106,6 +100,7 @@ struct scmi_channel {
     uint32_t func_id;
     domid_t domain_id;
     uint64_t paddr;
+    uint64_t len;
     struct scmi_shared_mem *shmem;
     spinlock_t lock;
     struct list_head list;
@@ -232,6 +227,13 @@ static int get_smc_response(struct scmi_channel *chan_info,
 
     printk(XENLOG_DEBUG "scmi: get smc responce msgid %d\n", hdr->id);
 
+    if ( len >= PAGE_SIZE - sizeof(chan_info->shmem) )
+    {
+        printk(XENLOG_ERR
+               "scmi: Wrong size of input smc message. Data may be invalid\n");
+        return -EINVAL;
+    }
+
     ret = channel_is_free(chan_info);
     if ( IS_ERR_VALUE(ret) )
         return ret;
@@ -316,8 +318,7 @@ static struct scmi_channel *aquire_scmi_channel(domid_t domain_id)
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
     {
-        if ( (curr->domain_id == DOMID_INVALID)
-            && (curr->chan_id != HYP_CHANNEL) )
+        if ( curr->domain_id == DOMID_INVALID )
         {
             curr->domain_id = domain_id;
             found = true;
@@ -475,6 +476,10 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
     if ( IS_ERR(channel) )
         return false;
 
+    spin_lock(&scmi_data.channel_list_lock);
+    channel->domain_id = DOMID_XEN;
+    spin_unlock(&scmi_data.channel_list_lock);
+
     hdr.id = SCMI_BASE_PROTOCOL_ATTIBUTES;
     hdr.type = 0;
     hdr.protocol = SCMI_BASE_PROTOCOL;
@@ -588,7 +593,11 @@ static int scmi_add_device_by_devid(struct domain *d, uint32_t scmi_devid)
 {
     struct scmi_channel *channel, *agent_channel;
     scmi_msg_header_t hdr;
-    scmi_perms_tx_t tx;
+    struct scmi_perms_tx {
+        uint32_t agent_id;
+        uint32_t device_id;
+        uint32_t flags;
+    } tx;
     struct rx_t {
         int32_t status;
         uint32_t attributes;

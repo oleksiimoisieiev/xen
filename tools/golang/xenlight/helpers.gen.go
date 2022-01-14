@@ -1087,6 +1087,7 @@ if err := x.DmRestrict.fromC(&xc.dm_restrict);err != nil {
 return fmt.Errorf("converting field DmRestrict: %v", err)
 }
 x.Tee = TeeType(xc.tee)
+x.ArmSci = ArmSciType(xc.arm_sci)
 x.Type = DomainType(xc._type)
 switch x.Type{
 case DomainTypeHvm:
@@ -1421,6 +1422,7 @@ if err := x.DmRestrict.toC(&xc.dm_restrict); err != nil {
 return fmt.Errorf("converting field DmRestrict: %v", err)
 }
 xc.tee = C.libxl_tee_type(x.Tee)
+xc.arm_sci = C.libxl_arm_sci_type(x.ArmSci)
 xc._type = C.libxl_domain_type(x.Type)
 switch x.Type{
 case DomainTypeHvm:
