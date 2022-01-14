@@ -2238,28 +2238,6 @@ int xc_domctl_passthrough_dtdev(xc_interface *xch,
     return rc;
 }
 
-int xc_domain_add_sci_device(xc_interface *xch,
-                              uint32_t domid, char *path)
-{
-    size_t size = strlen(path);
-    int rc;
-    DECLARE_DOMCTL;
-    DECLARE_HYPERCALL_BOUNCE(path, size, XC_HYPERCALL_BUFFER_BOUNCE_IN);
-
-    if ( xc_hypercall_bounce_pre(xch, path) )
-        return -1;
-
-    domctl.cmd = XEN_DOMCTL_add_sci_device;
-    domctl.domain = domid;
-    domctl.u.sci_device_op.size = size;
-    set_xen_guest_handle(domctl.u.sci_device_op.path, path);
-    rc = do_domctl(xch, &domctl);
-
-    xc_hypercall_bounce_post(xch, path);
-
-    return rc;
-}
-
 /*
  * Local variables:
  * mode: C

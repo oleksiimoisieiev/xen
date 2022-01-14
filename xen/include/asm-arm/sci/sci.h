@@ -23,6 +23,7 @@
 #include <xen/lib.h>
 #include <xen/types.h>
 #include <xen/device_tree.h>
+#include <public/domctl.h>
 
 #ifdef CONFIG_ARM_SCI
 
@@ -90,6 +91,9 @@ int sci_add_dt_device(struct domain *d, struct dt_device_node *dev);
 int sci_relinquish_resources(struct domain *d);
 bool sci_handle_call(struct domain *d, void *args);
 uint16_t sci_get_type(void);
+int sci_do_domctl(
+    struct xen_domctl *domctl, struct domain *d,
+    XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl);
 
 #define REGISTER_SCI_MEDIATOR(_name, _namestr, _type, _match, _ops) \
 static const struct sci_mediator_desc __sci_desc_##_name __used     \
@@ -135,6 +139,14 @@ static inline uint16_t sci_get_type(void)
 {
     return XEN_DOMCTL_CONFIG_ARM_SCI_NONE;
 }
+
+static inline int sci_do_domctl(
+    struct xen_domctl *domctl, struct domain *d,
+    XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
+{
+    return -ENOSYS;
+}
+
 
 #endif  /* CONFIG_ARM_SCI */
 
