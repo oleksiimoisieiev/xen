@@ -79,12 +79,6 @@ typedef struct scmi_msg_header {
     uint8_t protocol;
 } scmi_msg_header_t;
 
-typedef struct scmi_perms_tx {
-    uint32_t agent_id;
-    uint32_t device_id;
-    uint32_t flags;
-} scmi_perms_tx_t;
-
 #define SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE   BIT(0, UL)
 #define SCMI_SHMEM_CHAN_STAT_CHANNEL_ERROR  BIT(1, UL)
 
@@ -599,7 +593,11 @@ static int scmi_add_device_by_devid(struct domain *d, uint32_t scmi_devid)
 {
     struct scmi_channel *channel, *agent_channel;
     scmi_msg_header_t hdr;
-    scmi_perms_tx_t tx;
+    struct scmi_perms_tx {
+        uint32_t agent_id;
+        uint32_t device_id;
+        uint32_t flags;
+    } tx;
     struct rx_t {
         int32_t status;
         uint32_t attributes;
