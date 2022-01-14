@@ -306,28 +306,6 @@ static struct scmi_channel *get_channel_by_id(uint8_t chan_id)
     return NULL;
 }
 
-static struct scmi_channel *get_channel_by_domain(domid_t domain_id)
-{
-    struct scmi_channel *curr;
-    bool found = false;
-
-    spin_lock(&scmi_data.channel_list_lock);
-    list_for_each_entry(curr, &scmi_data.channel_list, list)
-    {
-        if ( curr->domain_id == domain_id )
-        {
-            found = true;
-            break;
-        }
-    }
-
-    spin_unlock(&scmi_data.channel_list_lock);
-    if ( found )
-        return curr;
-
-    return NULL;
-}
-
 static struct scmi_channel *aquire_scmi_channel(domid_t domain_id)
 {
     struct scmi_channel *curr;
@@ -622,7 +600,7 @@ static int scmi_add_device_by_devid(struct domain *d, uint32_t scmi_devid)
 
     printk(XENLOG_DEBUG "scmi: scmi_devid = %d\n", scmi_devid);
 
-    agent_channel = get_channel_by_domain(d->domain_id);
+    agent_channel = d->arch.sci;
     if ( IS_ERR_OR_NULL(agent_channel) )
         return PTR_ERR(agent_channel);
 
