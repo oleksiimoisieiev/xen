@@ -324,8 +324,7 @@ static struct scmi_channel *aquire_scmi_channel(domid_t domain_id)
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry(curr, &scmi_data.channel_list, list)
     {
-        if ( (curr->domain_id == DOMID_INVALID)
-            && (curr->chan_id != HYP_CHANNEL) )
+        if ( curr->domain_id == DOMID_INVALID )
         {
             curr->domain_id = domain_id;
             found = true;
@@ -482,6 +481,10 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
     channel = smc_create_channel(HYP_CHANNEL, func_id, addr);
     if ( IS_ERR(channel) )
         return false;
+
+    spin_lock(&scmi_data.channel_list_lock);
+    channel->domain_id = DOMID_XEN;
+    spin_unlock(&scmi_data.channel_list_lock);
 
     hdr.id = SCMI_BASE_PROTOCOL_ATTIBUTES;
     hdr.type = 0;
