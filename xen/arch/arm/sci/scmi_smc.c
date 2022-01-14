@@ -356,8 +356,9 @@ static struct scmi_channel *aquire_scmi_channel(domid_t domain_id)
 
 static void relinquish_scmi_channel(struct scmi_channel *channel)
 {
-    spin_lock(&scmi_data.channel_list_lock);
     ASSERT(channel != NULL);
+
+    spin_lock(&scmi_data.channel_list_lock);
     channel->domain_id = DOMID_INVALID;
     spin_unlock(&scmi_data.channel_list_lock);
 }
