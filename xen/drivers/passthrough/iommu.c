@@ -518,6 +518,7 @@ int iommu_do_domctl(
     if ( !is_iommu_enabled(d) )
         return -EOPNOTSUPP;
 
+
 #ifdef CONFIG_HAS_PCI
     ret = iommu_do_pci_domctl(domctl, d, u_domctl);
 #endif

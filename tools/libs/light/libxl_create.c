@@ -1828,23 +1828,18 @@ static void libxl__add_dtdevs(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
 {
     AO_GC;
     libxl__ao_device *aodev = libxl__multidev_prepare(multidev);
-    int i, rc = 0, rc_scmi = 0;
+    int i, rc = 0;
 
     for (i = 0; i < d_config->num_dtdevs; i++) {
         const libxl_device_dtdev *dtdev = &d_config->dtdevs[i];
 
         LOGD(DEBUG, domid, "Assign device \"%s\" to domain", dtdev->path);
         rc = xc_assign_dt_device(CTX->xch, domid, dtdev->path);
-        rc_scmi = xc_domain_add_sci_device(CTX->xch, domid, dtdev->path);
 
-        if ((rc < 0) && (rc_scmi < 0)) {
-            LOGD(ERROR, domid, "xc_assign_dt_device failed: %d; xc_domain_add_scmi_device failed: %d",
-                 rc, rc_scmi);
+        if (rc < 0) {
+            LOGD(ERROR, domid, "xc_assign_dt_device failed: %d", rc);
             goto out;
         }
-
-        if (rc)
-            rc = rc_scmi;
     }
 
 out:

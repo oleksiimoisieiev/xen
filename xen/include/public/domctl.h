@@ -1189,12 +1189,6 @@ struct xen_domctl_vmtrace_op {
 #define XEN_DOMCTL_vmtrace_set_option         6
 };
 
-/* XEN_DOMCTL_add_sci_device: set sci device permissions */
-struct xen_domctl_sci_device_op {
-    uint32_t size; /* Length of the path */
-    XEN_GUEST_HANDLE_64(char) path; /* path to the device tree node */
-};
-
 typedef struct xen_domctl_vmtrace_op xen_domctl_vmtrace_op_t;
 DEFINE_XEN_GUEST_HANDLE(xen_domctl_vmtrace_op_t);
 
@@ -1285,7 +1279,6 @@ struct xen_domctl {
 #define XEN_DOMCTL_vmtrace_op                    84
 #define XEN_DOMCTL_platform                      85
 #define XEN_DOMCTL_attach_coproc                 86
-#define XEN_DOMCTL_add_sci_device               87
 #define XEN_DOMCTL_gdbsx_guestmemio            1000
 #define XEN_DOMCTL_gdbsx_pausevcpu             1001
 #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
@@ -1349,7 +1342,6 @@ struct xen_domctl {
         struct xen_domctl_platform          domctl_platform;
         struct xen_domctl_attach_coproc     attach_coproc;
         struct xen_domctl_vmtrace_op        vmtrace_op;
-        struct xen_domctl_sci_device_op     sci_device_op;
         uint8_t                             pad[128];
     } u;
 };

@@ -84,6 +84,36 @@ uint16_t sci_get_type(void)
     return cur_mediator->sci_type;
 }
 
+int sci_do_domctl(
+    struct xen_domctl *domctl, struct domain *d,
+    XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
+{
+    int rc = -EINVAL;
+    struct dt_device_node *dev;
+
+    switch ( domctl->cmd )
+    {
+    case XEN_DOMCTL_assign_device:
+        if ( domctl->u.assign_device.dev != XEN_DOMCTL_DEV_DT )
+            break;
+
+        rc = dt_find_node_by_gpath(domctl->u.assign_device.u.dt.path,
+                               domctl->u.assign_device.u.dt.size,
+                               &dev);
+        if ( rc )
+            return rc;
+
+        rc = sci_add_dt_device(d, dev);
+
+        break;
+    default:
+        rc = -ENOSYS;
+        break;
+    }
+
+    return rc;
+}
+
 static int __init sci_init(void)
 {
     const struct sci_mediator_desc *desc;
