@@ -106,6 +106,7 @@ struct scmi_channel {
     uint32_t func_id;
     domid_t domain_id;
     uint64_t paddr;
+    uint64_t len;
     struct scmi_shared_mem *shmem;
     spinlock_t lock;
     struct list_head list;
@@ -231,6 +232,13 @@ static int get_smc_response(struct scmi_channel *chan_info,
     int ret;
 
     printk(XENLOG_DEBUG "scmi: get smc responce msgid %d\n", hdr->id);
+
+    if ( len >= PAGE_SIZE - sizeof(chan_info->shmem) )
+    {
+        printk(XENLOG_ERR
+               "scmi: Wrong size of input smc message. Data may be invalid\n");
+        return -EINVAL;
+    }
 
     ret = channel_is_free(chan_info);
     if ( IS_ERR_VALUE(ret) )
