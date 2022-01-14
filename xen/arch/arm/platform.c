@@ -184,7 +184,7 @@ int platform_do_domctl(struct xen_domctl *domctl, struct domain *d,
     if ( platform && platform->do_domctl )
         return platform->do_domctl(domctl, d, u_domctl);
 
-    return -ENOSYS;
+    return 0;
 }
 
 /*
