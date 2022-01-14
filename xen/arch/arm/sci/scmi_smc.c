@@ -377,13 +377,13 @@ static struct scmi_channel *smc_create_channel(uint8_t chan_id,
     return channel;
 }
 
-static int map_channel_to_domain(struct domain *d, uint64_t addr, uint64_t len)
+static int mem_permit_access(struct domain *d, uint64_t addr, uint64_t len)
 {
     return iomem_permit_access(d, paddr_to_pfn(addr),
                 paddr_to_pfn(PAGE_ALIGN(addr + len -1)));
 }
 
-static int unmap_channel_from_domain(struct domain *d, uint64_t addr,
+static int mem_deny_access(struct domain *d, uint64_t addr,
                                      uint64_t len)
 {
     return iomem_deny_access(d, paddr_to_pfn(addr),
@@ -563,16 +563,16 @@ static int scmi_domain_init(struct domain *d,
 
     if ( is_hardware_domain(d) )
     {
-        ret = map_channel_to_domain(d, channel->paddr, PAGE_SIZE);
+        ret = mem_permit_access(d, channel->paddr, PAGE_SIZE);
         if ( IS_ERR_VALUE(ret) )
             goto error;
 
         ret = dt_update_domain_range(channel->paddr, PAGE_SIZE);
         if ( IS_ERR_VALUE(ret) )
         {
-            int rc = unmap_channel_from_domain(d, channel->paddr, PAGE_SIZE);
+            int rc = mem_deny_access(d, channel->paddr, PAGE_SIZE);
             if ( rc )
-                printk(XENLOG_ERR "Unable to unmap_channel_from_domain\n");
+                printk(XENLOG_ERR "Unable to mem_deny_access\n");
 
             goto error;
         }
@@ -710,7 +710,7 @@ static void scmi_domain_destroy(struct domain *d)
 
     d->arch.sci = NULL;
 
-    unmap_channel_from_domain(d, channel->paddr, PAGE_SIZE);
+    mem_deny_access(d, channel->paddr, PAGE_SIZE);
     spin_unlock(&channel->lock);
 }
 
@@ -727,7 +727,7 @@ static bool scmi_handle_call(struct domain *d, void *args)
     agent_channel = d->arch.sci;
     spin_lock(&agent_channel->lock);
 
-    if ( agent_channel->func_id != regs->x0 )
+    if ( agent_channel->func_id != regs->r0 )
     {
         res = false;
         goto unlock;
