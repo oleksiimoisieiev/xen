@@ -181,25 +181,29 @@ long arch_do_domctl(struct xen_domctl *domctl, struct domain *d,
     {
         int rc;
 
-        rc = subarch_do_domctl(domctl, d, u_domctl);
-
-#ifdef CONFIG_HAS_COPROC
-        if ( rc == -ENOSYS )
-            rc = coproc_do_domctl(domctl, d, u_domctl);
-#endif
-
-        if ( rc == -ENOSYS )
-            rc = platform_do_domctl(domctl, d, u_domctl);
-
-        if ( rc == -ENOSYS )
-        {
-            rc = iommu_do_domctl(domctl, d, u_domctl);
-            if ( (rc) && (rc != -ENOSYS) )
-                return rc;
-
-            rc = sci_do_domctl(domctl, d, u_domctl);
+#define CHECK_RC(x) \
+        if ( (x) && (x != -ENOSYS) ) \
+        { \
+            return x; \
         }
 
+        rc = subarch_do_domctl(domctl, d, u_domctl);
+        CHECK_RC(rc);
+
+#ifdef CONFIG_HAS_COPROC
+        rc = coproc_do_domctl(domctl, d, u_domctl);
+        CHECK_RC(rc);
+#endif
+
+        rc = iommu_do_domctl(domctl, d, u_domctl);
+        CHECK_RC(rc);
+
+        rc = sci_do_domctl(domctl, d, u_domctl);
+        CHECK_RC(rc);
+
+        rc = platform_do_domctl(domctl, d, u_domctl);
+
+#undef CHECK_RC
 
         return rc;
     }
