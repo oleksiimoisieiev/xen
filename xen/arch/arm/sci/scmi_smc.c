@@ -56,8 +56,9 @@
 #define DT_MATCH_SCMI_SMC DT_MATCH_COMPATIBLE("arm,scmi-smc")
 
 #define SCMI_SMC_ID                        "arm,smc-id"
-#define SCMI_SHARED_MEMORY                 "linux,scmi_mem"
+#define SCMI_SHARED_MEMORY                 "arm,scmi-shmem"
 #define SCMI_SHMEM                         "shmem"
+#define SCMI_SHMEM_MAPPED_SIZE             PAGE_SIZE
 
 #define HYP_CHANNEL                          0x0
 
@@ -209,6 +210,14 @@ static int send_smc_message(struct scmi_channel *chan_info,
     struct arm_smccc_res resp;
     int ret;
 
+    if ( (len + sizeof(chan_info->shmem->msg_header)) >
+                         SCMI_SHMEM_MAPPED_SIZE )
+    {
+        printk(XENLOG_ERR
+               "scmi: Wrong size of smc message. Data is invalid\n");
+        return -EINVAL;
+    }
+
     printk(XENLOG_DEBUG "scmi: status =%d len=%d\n",
            chan_info->shmem->channel_status, len);
     printk(XENLOG_DEBUG "scmi: header id = %d type = %d, proto = %d\n",
@@ -282,7 +291,7 @@ static int get_smc_response(struct scmi_channel *chan_info,
 
     printk(XENLOG_DEBUG "scmi: get smc responce msgid %d\n", hdr->id);
 
-    if ( len >= PAGE_SIZE - sizeof(chan_info->shmem) )
+    if ( len >= SCMI_SHMEM_MAPPED_SIZE - sizeof(chan_info->shmem) )
     {
         printk(XENLOG_ERR
                "scmi: Wrong size of input smc message. Data may be invalid\n");
@@ -324,6 +333,8 @@ static int do_smc_xfer(struct scmi_channel *channel, scmi_msg_header_t *hdr, voi
                        void *rx_data, int rx_size)
 {
     int ret = 0;
+
+    ASSERT( channel && channel->shmem);
 
     if ( !hdr )
         return -EINVAL;
@@ -400,7 +411,7 @@ static void relinquish_scmi_channel(struct scmi_channel *channel)
 static int map_channel_memory(struct scmi_channel *channel)
 {
     ASSERT( channel && channel->paddr );
-    channel->shmem = ioremap_cache(channel->paddr, PAGE_SIZE);
+    channel->shmem = ioremap_cache(channel->paddr, SCMI_SHMEM_MAPPED_SIZE);
     if ( !channel->shmem )
         return -ENOMEM;
 
@@ -461,8 +472,7 @@ static int dt_update_domain_range(uint64_t addr, uint64_t size)
     const struct dt_property *pp;
     uint32_t len;
 
-    shmem_node = dt_find_compatible_node(NULL, NULL, "arm,scmi-shmem");
-
+    shmem_node = dt_find_compatible_node(NULL, NULL, SCMI_SHARED_MEMORY);
     if ( !shmem_node )
     {
         printk(XENLOG_ERR "scmi: Unable to find %s node in DT\n", SCMI_SHMEM);
@@ -496,9 +506,23 @@ static void free_channel_list(void)
     spin_unlock(&scmi_data.channel_list_lock);
 }
 
+static struct dt_device_node *get_dt_node_from_property(
+                struct dt_device_node *node, const char * p_name)
+{
+    const __be32 *prop;
+
+    ASSERT( node );
+
+    prop = dt_get_property(node, p_name, NULL);
+    if ( !prop )
+        return ERR_PTR(-EINVAL);
+
+    return dt_find_node_by_phandle(be32_to_cpup(prop));
+}
+
 static __init bool scmi_probe(struct dt_device_node *scmi_node)
 {
-    struct dt_device_node *shmem_node;
+    struct dt_device_node *shmem_node, *scp_shmem_node;
     u64 addr, size;
     int ret, i;
     struct scmi_channel *channel, *agent_channel;
@@ -522,11 +546,20 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         return false;
     }
 
-    shmem_node = dt_find_node_by_name(NULL, SCMI_SHARED_MEMORY);
-    if ( IS_ERR_OR_NULL(shmem_node) )
+    scp_shmem_node = dt_find_compatible_node(NULL, NULL, SCMI_SHARED_MEMORY);
+    if ( IS_ERR_OR_NULL(scp_shmem_node) )
     {
         printk(XENLOG_ERR
                "scmi: Device tree error, can't parse shmem phandle %ld\n",
+               PTR_ERR(scp_shmem_node));
+        return false;
+    }
+
+    shmem_node = get_dt_node_from_property(scp_shmem_node, "memory-region");
+    if ( IS_ERR_OR_NULL(shmem_node) )
+    {
+        printk(XENLOG_ERR
+               "scmi: Device tree error, can't parse reserved memory %ld\n",
                PTR_ERR(shmem_node));
         return false;
     }
@@ -534,6 +567,12 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
     ret = dt_device_get_address(shmem_node, 0, &addr, &size);
     if ( IS_ERR_VALUE(ret) )
         return false;
+
+    if ( !IS_ALIGNED(size, SCMI_SHMEM_MAPPED_SIZE) )
+    {
+        printk(XENLOG_ERR "scmi: Reserved memory is not aligned\n");
+        return false;
+    }
 
     channel = smc_create_channel(HYP_CHANNEL, func_id, addr);
     if ( IS_ERR(channel) )
