@@ -580,6 +580,7 @@ static int map_sci_page(libxl__gc *gc, uint32_t domid, uint64_t paddr,
     uint64_t _paddr_pfn = paddr >> XC_PAGE_SHIFT;
     uint64_t _guest_pfn = guest_addr >> XC_PAGE_SHIFT;
 
+    assert(paddr == 0 || guest_addr == 0);
     LOG(DEBUG, "iomem %"PRIx64, _paddr_pfn);
 
     ret = xc_domain_iomem_permission(CTX->xch, domid, _paddr_pfn, 1, 1);
@@ -767,7 +768,7 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
         goto out;
     }
 
-    if (state->arm_sci_agent_paddr != 0) {
+    if (d_config->b_info.arm_sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC) {
         ret = map_sci_page(gc, *domid, state->arm_sci_agent_paddr,
                             state->sci_shmem_gfn << XC_PAGE_SHIFT);
         if (ret < 0) {
