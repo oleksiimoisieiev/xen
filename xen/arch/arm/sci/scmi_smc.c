@@ -148,6 +148,61 @@ static inline int channel_is_free(struct scmi_channel *chan_info)
             & SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE ) ? 0 : -EBUSY;
 }
 
+// TODO move it to different place?
+/*
+ * Copy data from IO memory space to "real" memory space.
+ */
+void __memcpy_fromio(void *to, const volatile void __iomem *from, size_t count)
+{
+    while (count && !IS_ALIGNED((unsigned long)from, 8)) {
+        *(u8 *)to = __raw_readb(from);
+        from++;
+        to++;
+        count--;
+    }
+
+    while (count >= 8) {
+        *(u64 *)to = __raw_readq(from);
+        from += 8;
+        to += 8;
+        count -= 8;
+    }
+
+    while (count) {
+        *(u8 *)to = __raw_readb(from);
+        from++;
+        to++;
+        count--;
+    }
+}
+
+/*
+ * Copy data from "real" memory space to IO memory space.
+ */
+void __memcpy_toio(volatile void __iomem *to, const void *from, size_t count)
+{
+    while (count && !IS_ALIGNED((unsigned long)to, 8)) {
+        __raw_writeb(*(u8 *)from, to);
+        from++;
+        to++;
+        count--;
+    }
+
+    while (count >= 8) {
+        __raw_writeq(*(u64 *)from, to);
+        from += 8;
+        to += 8;
+        count -= 8;
+    }
+
+    while (count) {
+        __raw_writeb(*(u8 *)from, to);
+        from++;
+        to++;
+        count--;
+    }
+}
+
 static int send_smc_message(struct scmi_channel *chan_info,
                             scmi_msg_header_t *hdr, void *data, int len)
 {
@@ -172,7 +227,7 @@ static int send_smc_message(struct scmi_channel *chan_info,
     printk(XENLOG_DEBUG "scmi: Writing to shmem address %p\n",
            chan_info->shmem);
     if ( len > 0 && data )
-        memcpy((void *)(chan_info->shmem->msg_payload), data, len);
+        __memcpy_toio((void *)(chan_info->shmem->msg_payload), data, len);
 
     arm_smccc_smc(chan_info->func_id, 0, 0, 0, 0, 0, 0, chan_info->chan_id,
                   &resp);
@@ -259,7 +314,7 @@ static int get_smc_response(struct scmi_channel *chan_info,
 
     if ( recv_len > 0 )
     {
-        memcpy(data, chan_info->shmem->msg_payload, recv_len);
+        __memcpy_fromio(data, chan_info->shmem->msg_payload, recv_len);
     }
 
     return 0;
@@ -342,11 +397,29 @@ static void relinquish_scmi_channel(struct scmi_channel *channel)
     spin_unlock(&scmi_data.channel_list_lock);
 }
 
+static int map_channel_memory(struct scmi_channel *channel)
+{
+    ASSERT( channel && channel->paddr );
+    channel->shmem = ioremap_cache(channel->paddr, PAGE_SIZE);
+    if ( !channel->shmem )
+        return -ENOMEM;
+
+    channel->shmem->channel_status = SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE;
+    printk(XENLOG_DEBUG "scmi: Got shmem after vmap %p\n", channel->shmem);
+    return 0;
+}
+
+static void unmap_channel_memory(struct scmi_channel *channel)
+{
+    ASSERT( channel && channel->shmem );
+    iounmap(channel->shmem);
+    channel->shmem = NULL;
+}
+
 static struct scmi_channel *smc_create_channel(uint8_t chan_id,
                                                uint32_t func_id, uint64_t addr)
 {
     struct scmi_channel *channel;
-    mfn_t mfn;
 
     channel = get_channel_by_id(chan_id);
     if ( channel )
@@ -359,17 +432,8 @@ static struct scmi_channel *smc_create_channel(uint8_t chan_id,
     channel->chan_id = chan_id;
     channel->func_id = func_id;
     channel->domain_id = DOMID_INVALID;
-    mfn = maddr_to_mfn(addr);
-    channel->shmem = vmap(&mfn, 1);
-    if ( !channel->shmem )
-    {
-        xfree(channel);
-        return ERR_PTR(ENOMEM);
-    }
-
-    printk(XENLOG_DEBUG "scmi: Got shmem after vmap %p\n", channel->shmem);
+    channel->shmem = NULL;
     channel->paddr = addr;
-    channel->shmem->channel_status = SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE;
     spin_lock_init(&channel->lock);
     spin_lock(&scmi_data.channel_list_lock);
     list_add(&channel->list, &scmi_data.channel_list);
@@ -425,7 +489,6 @@ static void free_channel_list(void)
     spin_lock(&scmi_data.channel_list_lock);
     list_for_each_entry_safe (curr, _curr, &scmi_data.channel_list, list)
     {
-        vunmap(curr->shmem);
         list_del(&curr->list);
         xfree(curr);
     }
@@ -476,6 +539,10 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
     if ( IS_ERR(channel) )
         return false;
 
+    ret = map_channel_memory(channel);
+    if ( ret )
+        return false;
+
     spin_lock(&scmi_data.channel_list_lock);
     channel->domain_id = DOMID_XEN;
     spin_unlock(&scmi_data.channel_list_lock);
@@ -515,6 +582,10 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
             goto clean;
         }
 
+        ret = map_channel_memory(agent_channel);
+        if ( ret )
+            goto clean;
+
         hdr.id = SCMI_BASE_DISCOVER_AGENT;
         hdr.type = 0;
         hdr.protocol = SCMI_BASE_PROTOCOL;
@@ -522,7 +593,12 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         ret = do_smc_xfer(agent_channel, &hdr, &tx_agent_id,
                           sizeof(tx_agent_id), &da_rx, sizeof(da_rx));
         if ( ret )
+        {
+            unmap_channel_memory(agent_channel);
             goto clean;
+        }
+
+        unmap_channel_memory(agent_channel);
 
         ret = check_scmi_status(da_rx.status);
         if ( ret )
@@ -538,6 +614,7 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
     return true;
 
 clean:
+    unmap_channel_memory(channel);
     free_channel_list();
     return ret == 0;
 }
