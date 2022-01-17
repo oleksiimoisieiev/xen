@@ -2626,6 +2626,10 @@ static int __init construct_domU(struct domain *d,
     if ( rc < 0 )
         return rc;
 
+    rc = sci_domain_init(d, sci_get_type(), NULL);
+    if ( rc < 0 )
+        return rc;
+
     rc = construct_domain(d, &kinfo);
     if ( rc < 0 )
         return rc;
