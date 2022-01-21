@@ -514,6 +514,7 @@ Apic Defbool
 DmRestrict Defbool
 Tee TeeType
 ArmSci ArmSciType
+ForceAssignWithoutIommu Defbool
 Type DomainType
 TypeUnion domainBuildInfoTypeUnion
 ArchArm struct {
