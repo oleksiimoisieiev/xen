@@ -1592,9 +1592,16 @@ This feature is a B<technology preview>.
 
 =back
 
+=over 4
+
+=item B<force_assign_without_iommu=BOOLEAN>
+
+If set, Xen allows to assign a devices even if it is not behind an IOMMU.
+This renders your platform *unsafe* if the device is DMA-capable.
+
 =back
 
-=over 4
+=back
 
 =item B<vgsx=[ "VGSX_SPEC_STRING", "VGSX_SPEC_STRING", ...]>
 
