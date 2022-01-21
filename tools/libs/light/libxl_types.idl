@@ -574,6 +574,7 @@ libxl_domain_build_info = Struct("domain_build_info",[
     ("dm_restrict",      libxl_defbool),
     ("tee",              libxl_tee_type),
     ("arm_sci",          libxl_arm_sci_type),
+    ("force_assign_without_iommu", libxl_defbool),
     ("u", KeyedUnion(None, libxl_domain_type, "type",
                 [("hvm", Struct(None, [("firmware",         string),
                                        ("bios",             libxl_bios_type),

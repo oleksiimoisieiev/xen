@@ -1614,6 +1614,13 @@ SCP is used as transport.
 
 =back
 
+=item B<force_assign_without_iommu=BOOLEAN>
+
+If set, Xen allows to assign a devices even if it is not behind an IOMMU.
+This renders your platform *unsafe* if the device is DMA-capable.
+
+=back
+
 =item B<vgsx=[ "VGSX_SPEC_STRING", "VGSX_SPEC_STRING", ...]>
 
 Specifies the virtual GSX device to be provided to the guest.
