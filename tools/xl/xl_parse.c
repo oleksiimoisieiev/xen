@@ -2747,6 +2747,9 @@ skip_usbdev:
         }
     }
 
+    xlu_cfg_get_defbool(config, "force_assign_without_iommu",
+                        &b_info->force_assign_without_iommu, 0);
+
     parse_vkb_list(config, d_config);
 
     xlu_cfg_get_defbool(config, "xend_suspend_evtchn_compat",

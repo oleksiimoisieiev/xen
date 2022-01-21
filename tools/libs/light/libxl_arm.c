@@ -101,6 +101,9 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         return ERROR_FAIL;
     }
 
+    if (libxl_defbool_val(d_config->b_info.force_assign_without_iommu))
+        config->iommu_opts |= XEN_DOMCTL_IOMMU_force_iommu;
+
     return 0;
 }
 

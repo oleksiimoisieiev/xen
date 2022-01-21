@@ -512,6 +512,7 @@ NestedHvm Defbool
 Apic Defbool
 DmRestrict Defbool
 Tee TeeType
+ForceAssignWithoutIommu Defbool
 Type DomainType
 TypeUnion DomainBuildInfoTypeUnion
 ArchArm struct {
