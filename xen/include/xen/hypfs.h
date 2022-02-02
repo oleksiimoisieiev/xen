@@ -79,8 +79,8 @@ struct hypfs_entry_dir {
 struct hypfs_dyndir_id {
     struct hypfs_entry_dir dir;             /* Modified copy of template. */
     struct hypfs_funcs funcs;               /* Dynamic functions. */
-    const struct hypfs_entry_dir *template; /* Template used. */
-#define HYPFS_DYNDIR_ID_NAMELEN 12
+    const struct hypfs_entry *template; /* Template used. */
+#define HYPFS_DYNDIR_ID_NAMELEN 32
     char name[HYPFS_DYNDIR_ID_NAMELEN];     /* Name of hypfs entry. */
 
     unsigned int id;                        /* Numerical id. */
@@ -197,13 +197,23 @@ void *hypfs_alloc_dyndata(unsigned long size);
 #define hypfs_alloc_dyndata(type) ((type *)hypfs_alloc_dyndata(sizeof(type)))
 void *hypfs_get_dyndata(void);
 void hypfs_free_dyndata(void);
+int hypfs_read_dyndir_entry(const struct hypfs_entry *template,
+                               const char *name, unsigned int namelen,
+                               bool is_last,
+                               XEN_GUEST_HANDLE_PARAM(void) *uaddr);
 int hypfs_read_dyndir_id_entry(const struct hypfs_entry_dir *template,
                                unsigned int id, bool is_last,
                                XEN_GUEST_HANDLE_PARAM(void) *uaddr);
+struct hypfs_entry *hypfs_gen_dyndir_entry(
+    const struct hypfs_entry *template, const char *name,
+    void *data);
 struct hypfs_entry *hypfs_gen_dyndir_id_entry(
     const struct hypfs_entry_dir *template, unsigned int id, void *data);
 unsigned int hypfs_dynid_entry_size(const struct hypfs_entry *template,
                                     unsigned int id);
+unsigned int hypfs_dyndir_entry_size(const struct hypfs_entry *template,
+                                    const char *name);
+
 #endif
 
 #endif /* __XEN_HYPFS_H__ */
