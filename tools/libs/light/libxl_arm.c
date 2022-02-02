@@ -7,6 +7,7 @@
 #include <libfdt.h>
 #include <assert.h>
 #include <xen/device_tree_defs.h>
+#include <xenhypfs.h>
 
 #ifndef container_of
 #define container_of(ptr, type, member) ({			\
@@ -14,7 +15,10 @@
         (type *)( (char *)__mptr - offsetof(type,member) );})
 #endif
 
-#define SCMI_NODE_PATH      "/firmware/scmi"
+#define SCMI_NODE_PATH         "/firmware/scmi"
+#define SCMI_NODE_COMPATIBLE   "arm,scmi-smc"
+#define SCMI_SHMEM_COMPATIBLE  "arm,scmi-shmem"
+#define HYPFS_DEVICETREE_PATH  "/devicetree"
 
 static const char *gicv_to_string(libxl_gic_version gic_version)
 {
@@ -1012,6 +1016,98 @@ static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
     return 0;
 }
 
+static int create_hypfs_property(struct xenhypfs_handle *hdl, void *fdt,
+                                 char *path, char *name, size_t sz)
+{
+    char *p, *result;
+    int ret = 0;
+    if (ret < 0)
+        return -ENOMEM;
+
+    if (strcmp(name, "shmem") == 0) {
+        struct dt_device_node *node =
+            dt_find_compatible_node(fdt, NULL, "arm,scmi-shmem");
+        if (!node)
+            return -EINVAL;
+
+        return fdt_property_cell(fdt, name, node->phandle);
+    }
+
+    ret = asprintf(&p, "%s%s", HYPFS_DEVICETREE_PATH, path);
+    result = xenhypfs_read(hdl, p);
+    free(p);
+    if (!result)
+        return -EINVAL;
+
+    return fdt_property(fdt, name, result, sz);
+}
+static int create_hypfs_subnode(struct xenhypfs_handle *hdl, void *fdt,
+                                char *path, char *name)
+{
+    struct xenhypfs_dirent *ent;
+    unsigned int n, i;
+    char *p, *p_sub;
+    int res = 0;
+
+    ret = asprintf(&p, "%s%s", HYPFS_DEVICETREE_PATH, path);
+    if (ret < 0)
+        return -ENOMEM;
+
+    ent = xenhypfs_readdir(hdl, p, &n);
+    free(p);
+    if (!ent)
+        return -EINVAL;
+
+    res = fdt_begin_node(fdt, name);
+    if (res) return res;
+
+    for (i = 0; i < n; i++) {
+        res = asprintf(&p_sub,"%s/%s", path, ent[i].name);
+        if (res < 0)
+            break;
+
+        if (ent[i].type == xenhypfs_type_dir)
+             res = create_hypfs_subnode(hdl, fdt, p_sub, ent[i].name);
+        else
+             res = create_hypfs_property(hdl, fdt, p_sub, ent[i].name,
+                                         ent[i].size);
+
+        free(p_sub);
+        if (res)
+            break;
+    }
+
+    res = fdt_end_node(fdt);
+    return res;
+}
+
+static int create_scmi_from_hypfs(void *fdt, const char *path)
+{
+    struct xenhypfs_handle *hdl;
+    int res;
+    hdl = xenhypfs_open(NULL, 0);
+    if (!hdl)
+        return -EINVAL;
+
+    res = create_hypfs_subnode(hdl, fdt, path, "scmi");
+    xenhypfs_close(hdl);
+
+    return res;
+}
+
+static int make_scmi_node(libxl__gc *gc, void *fdt, void *pfdt)
+{
+    int res = 0;
+    int nodeoff =
+        fdt_node_offset_by_compatible(pfdt, 0, SCMI_SHMEM_COMPATIBLE);
+    if (nodeoff > 0)
+        res = copy_node(gc, fdt, pfdt, nodeoff, 0);
+    else
+        res = create_scmi_from_hypfs(fdt, SCMI_NODE_PATH);
+
+    return res
+}
+
 static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
                               int sci)
 {
@@ -1029,7 +1125,7 @@ static int make_firmware_node(libxl__gc *gc, void *fdt, void *pfdt, int tee,
     }
 
     if (sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC) {
-        res = copy_node_by_path(gc, SCMI_NODE_PATH, fdt, pfdt);
+        res = make_scmi_node(gc, fdt, pfdt);
         if (res) return res;
     }
 
