@@ -367,28 +367,26 @@ unsigned int hypfs_getsize(const struct hypfs_entry *entry)
 
 /*
  * Fill the direntry for a dynamically generated entry. Especially the
- * generated name needs to be kept in sync with hypfs_gen_dyndir_id_entry().
+ * generated name needs to be kept in sync with hypfs_gen_dyndir_entry().
  */
-int hypfs_read_dyndir_id_entry(const struct hypfs_entry_dir *template,
-                               unsigned int id, bool is_last,
-                               XEN_GUEST_HANDLE_PARAM(void) *uaddr)
+int hypfs_read_dyndir_entry(const struct hypfs_entry *template,
+                            const char *name, unsigned int namelen,
+                            bool is_last, XEN_GUEST_HANDLE_PARAM(void) *uaddr)
 {
     struct xen_hypfs_dirlistentry direntry;
-    char name[HYPFS_DYNDIR_ID_NAMELEN];
-    unsigned int e_namelen, e_len;
+    unsigned int e_len;
 
-    e_namelen = snprintf(name, sizeof(name), template->e.name, id);
-    e_len = DIRENTRY_SIZE(e_namelen);
+    e_len = DIRENTRY_SIZE(namelen);
     direntry.e.pad = 0;
-    direntry.e.type = template->e.type;
-    direntry.e.encoding = template->e.encoding;
-    direntry.e.content_len = template->e.funcs->getsize(&template->e);
-    direntry.e.max_write_len = template->e.max_size;
+    direntry.e.type = template->type;
+    direntry.e.encoding = template->encoding;
+    direntry.e.content_len = template->funcs->getsize(template);
+    direntry.e.max_write_len = template->max_size;
     direntry.off_next = is_last ? 0 : e_len;
     if ( copy_to_guest(*uaddr, &direntry, 1) )
         return -EFAULT;
     if ( copy_to_guest_offset(*uaddr, DIRENTRY_NAME_OFF, name,
-                              e_namelen + 1) )
+                              namelen + 1) )
         return -EFAULT;
 
     guest_handle_add_offset(*uaddr, e_len);
@@ -396,37 +394,107 @@ int hypfs_read_dyndir_id_entry(const struct hypfs_entry_dir *template,
     return 0;
 }
 
+/*
+ * Fill the direntry for a dynamically generated entry. Especially the
+ * generated name needs to be kept in sync with hypfs_gen_dyndir_id_entry().
+ */
+int hypfs_read_dyndir_id_entry(const struct hypfs_entry_dir *template,
+                               unsigned int id, bool is_last,
+                               XEN_GUEST_HANDLE_PARAM(void) *uaddr)
+{
+    char name[HYPFS_DYNDIR_ID_NAMELEN];
+    unsigned int e_namelen;
+
+    e_namelen = snprintf(name, sizeof(name), template->e.name, id);
+    return hypfs_read_dyndir_entry(&template->e, name, e_namelen, is_last, uaddr);
+}
+
+
 static const struct hypfs_entry *hypfs_dyndir_enter(
     const struct hypfs_entry *entry)
 {
-    const struct hypfs_dyndir_id *data;
+    const struct hypfs_dyndir *data;
 
     data = hypfs_get_dyndata();
 
     /* Use template with original enter function. */
-    return data->template->e.funcs->enter(&data->template->e);
+    return data->template->funcs->enter(data->template);
 }
 
 static struct hypfs_entry *hypfs_dyndir_findentry(
     const struct hypfs_entry_dir *dir, const char *name, unsigned int name_len)
 {
-    const struct hypfs_dyndir_id *data;
+    const struct hypfs_dyndir *data;
 
     data = hypfs_get_dyndata();
 
     /* Use template with original findentry function. */
-    return data->template->e.funcs->findentry(data->template, name, name_len);
+    return data->template->funcs->findentry(&data->dir, name, name_len);
 }
 
 static int hypfs_read_dyndir(const struct hypfs_entry *entry,
                              XEN_GUEST_HANDLE_PARAM(void) uaddr)
 {
-    const struct hypfs_dyndir_id *data;
+    const struct hypfs_dyndir *data;
 
     data = hypfs_get_dyndata();
 
     /* Use template with original read function. */
-    return data->template->e.funcs->read(&data->template->e, uaddr);
+    return data->template->funcs->read(data->template, uaddr);
+}
+
+static struct hypfs_entry *hypfs_fill_dyndir_entry(
+    struct hypfs_dyndir *dyndata, const struct hypfs_entry *template,
+    const char *name)
+{
+    dyndata->template = template;
+    memcpy(dyndata->name, name, strlen(name));
+    dyndata->dir.e = *template;
+    dyndata->dir.e.name = dyndata->name;
+
+    dyndata->dir.e.funcs = &dyndata->funcs;
+    dyndata->funcs = *template->funcs;
+    dyndata->funcs.enter = hypfs_dyndir_enter;
+    dyndata->funcs.findentry = hypfs_dyndir_findentry;
+    dyndata->funcs.read = hypfs_read_dyndir;
+
+    return &dyndata->dir.e;
+}
+
+/*
+ * Fill dyndata with a dynamically generated entry based on a template
+ * and a name.
+ * Needs to be kept in sync with hypfs_read_dyndir_entry() regarding the
+ * name generated.
+ */
+struct hypfs_entry *hypfs_gen_dyndir_entry(
+    const struct hypfs_entry *template, const char *name,
+    void *data)
+{
+    struct hypfs_dyndir *dyndata;
+
+    dyndata = hypfs_get_dyndata();
+    dyndata->data = data;
+
+    return hypfs_fill_dyndir_entry(dyndata, template, name);
+}
+
+/*
+ * Fill dyndata with a dynamically generated entry based on a template
+ * and a name. Put read-only content.
+ * Needs to be kept in sync with hypfs_read_dyndir_entry() regarding the
+ * name generated.
+ */
+struct hypfs_entry *hypfs_gen_dyndir_ro_entry(
+    const struct hypfs_entry *template, const char *name,
+    const void *content)
+{
+    struct hypfs_dyndir *dyndata;
+
+    dyndata = hypfs_get_dyndata();
+    dyndata->content = content;
+
+    return hypfs_fill_dyndir_entry(dyndata, template, name);
 }
 
 /*
@@ -438,16 +506,17 @@ static int hypfs_read_dyndir(const struct hypfs_entry *entry,
 struct hypfs_entry *hypfs_gen_dyndir_id_entry(
     const struct hypfs_entry_dir *template, unsigned int id, void *data)
 {
-    struct hypfs_dyndir_id *dyndata;
+    struct hypfs_dyndir *dyndata;
 
     dyndata = hypfs_get_dyndata();
 
-    dyndata->template = template;
-    dyndata->id = id;
+    dyndata->template = &template->e;
+    dyndata->id.id = id;
     dyndata->data = data;
-    snprintf(dyndata->name, sizeof(dyndata->name), template->e.name, id);
+    snprintf(dyndata->id.name, sizeof(dyndata->id.name),
+             template->e.name, id);
     dyndata->dir = *template;
-    dyndata->dir.e.name = dyndata->name;
+    dyndata->dir.e.name = dyndata->id.name;
     dyndata->dir.e.funcs = &dyndata->funcs;
     dyndata->funcs = *template->e.funcs;
     dyndata->funcs.enter = hypfs_dyndir_enter;
@@ -455,6 +524,12 @@ struct hypfs_entry *hypfs_gen_dyndir_id_entry(
     dyndata->funcs.read = hypfs_read_dyndir;
 
     return &dyndata->dir.e;
+}
+
+unsigned int hypfs_dyndir_entry_size(const struct hypfs_entry *template,
+                                     const char *name)
+{
+    return DIRENTRY_SIZE(strlen(name));
 }
 
 unsigned int hypfs_dynid_entry_size(const struct hypfs_entry *template,
