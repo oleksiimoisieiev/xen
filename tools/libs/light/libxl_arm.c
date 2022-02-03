@@ -966,39 +966,18 @@ static int copy_node_by_path(libxl__gc *gc, const char *path,
     return 0;
 }
 
-static int get_node_phandle(const char *path, void *pfdt, uint32_t *phandle)
-{
-    int nodeoff;
-    const char *name = strrchr(path, '/');
-
-    if (!name)
-        return -FDT_ERR_INTERNAL;
-
-    name++;
-    nodeoff = fdt_path_offset(pfdt, path);
-    if (nodeoff < 0)
-        return nodeoff;
-
-    *phandle = fdt_get_phandle(pfdt, nodeoff);
-    return 0;
-}
-
 static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
                            struct xc_dom_image *dom)
 {
     int res;
     char buf[64];
-    uint32_t phandle = 0;
-
-    res = get_node_phandle("/scp-shmem", pfdt, &phandle);
-    if (res) return res;
 
     snprintf(buf, sizeof(buf), "scp-shmem@%lx",
              dom->sci_shmem_gfn << XC_PAGE_SHIFT);
     res = fdt_begin_node(fdt, buf);
     if (res) return res;
 
-    res = fdt_property_compat(gc, fdt, 1, "arm,scmi-shmem");
+    res = fdt_property_compat(gc, fdt, 1, SCMI_SHMEM_COMPATIBLE);
     if (res) return res;
 
     res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS,
@@ -1006,8 +985,7 @@ static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
                     dom->sci_shmem_gfn << XC_PAGE_SHIFT, XC_PAGE_SHIFT);
     if (res) return res;
 
-    LOG(DEBUG, "scmi: setting phandle = %u\n", phandle);
-    res = fdt_property_cell(fdt, "phandle", phandle);
+    res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_SCMI);
     if (res) return res;
 
     res = fdt_end_node(fdt);
@@ -1017,31 +995,26 @@ static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
 }
 
 static int create_hypfs_property(struct xenhypfs_handle *hdl, void *fdt,
-                                 char *path, char *name, size_t sz)
+                                 char *path, char *name)
 {
     char *p, *result;
     int ret = 0;
-    if (ret < 0)
-        return -ENOMEM;
+    struct xenhypfs_dirent *ent;
 
-    if (strcmp(name, "shmem") == 0) {
-        uint32_t phandle;
-        int nodeoff =
-            fdt_node_offset_by_compatible(fdt, 0, "arm,scmi-shmem");
-        if (nodeoff <= 0)
-            return -EINVAL;
-
-        phandle = fdt_get_phandle(fdt, nodeoff);
-        return fdt_property_cell(fdt, name, phandle);
-    }
+    if (strcmp(name, "shmem") == 0)
+        return fdt_property_cell(fdt, name, GUEST_PHANDLE_SCMI);
 
     ret = asprintf(&p, "%s%s", HYPFS_DEVICETREE_PATH, path);
-    result = xenhypfs_read(hdl, p);
+    result = xenhypfs_read_raw(hdl, p, &ent);
     free(p);
     if (!result)
         return -EINVAL;
 
-    return fdt_property(fdt, name, result, sz);
+    ret = fdt_property(fdt, name, result, ent->size);
+    free(result);
+    free(ent);
+
+    return ret;
 }
 static int create_hypfs_subnode(struct xenhypfs_handle *hdl, void *fdt,
                                 const char *path, const char *name)
@@ -1071,8 +1044,7 @@ static int create_hypfs_subnode(struct xenhypfs_handle *hdl, void *fdt,
         if (ent[i].type == xenhypfs_type_dir)
              res = create_hypfs_subnode(hdl, fdt, p_sub, ent[i].name);
         else
-             res = create_hypfs_property(hdl, fdt, p_sub, ent[i].name,
-                                         ent[i].size);
+             res = create_hypfs_property(hdl, fdt, p_sub, ent[i].name);
 
         free(p_sub);
         if (res)
@@ -1080,6 +1052,7 @@ static int create_hypfs_subnode(struct xenhypfs_handle *hdl, void *fdt,
     }
 
     res = fdt_end_node(fdt);
+    free(ent);
     return res;
 }
 
@@ -1097,13 +1070,29 @@ static int create_scmi_from_hypfs(void *fdt, const char *path)
     return res;
 }
 
+static int set_shmem_phandle(void *fdt, const char *scmi_node_copmat)
+{
+    uint32_t val;
+    int nodeoff = fdt_node_offset_by_compatible(fdt, 0, scmi_node_copmat);
+    if (nodeoff < 0)
+        return -EINVAL;
+
+    val = cpu_to_fdt32(GUEST_PHANDLE_SCMI);
+    return fdt_setprop_inplace(fdt, nodeoff, "shmem", &val, sizeof(val));
+}
+
 static int make_scmi_node(libxl__gc *gc, void *fdt, void *pfdt)
 {
     int res = 0;
     int nodeoff =
-        fdt_node_offset_by_compatible(pfdt, 0, SCMI_SHMEM_COMPATIBLE);
-    if (nodeoff > 0)
+        fdt_node_offset_by_compatible(pfdt, 0, SCMI_NODE_COMPATIBLE);
+    if (nodeoff > 0) {
         res = copy_node(gc, fdt, pfdt, nodeoff, 0);
+        if (res) return res;
+
+        res = set_shmem_phandle(fdt, SCMI_NODE_COMPATIBLE);
+        if (res) return res;
+    }
     else
         res = create_scmi_from_hypfs(fdt, SCMI_NODE_PATH);
 
@@ -1365,10 +1354,10 @@ next_resize:
             FDT( copy_coprocs_nodes(gc, fdt, pfdt, info) );
         }
 
-        FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->arm_sci) );
-
         if (info->arm_sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC)
             FDT( make_scmi_shmem_node(gc, fdt, pfdt, dom) );
+
+        FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->arm_sci) );
 
         if (libxl_defbool_val(info->arch_arm.virtio)) {
             libxl_domain_config *d_config =
