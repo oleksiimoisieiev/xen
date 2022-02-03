@@ -161,18 +161,18 @@ static inline int channel_is_free(struct scmi_channel *chan_info)
  */
 void __memcpy_fromio(void *to, const volatile void __iomem *from, size_t count)
 {
-    while (count && !IS_ALIGNED((unsigned long)from, 8)) {
+    while (count && !IS_ALIGNED((unsigned long)from, 4)) {
         *(u8 *)to = __raw_readb(from);
         from++;
         to++;
         count--;
     }
 
-    while (count >= 8) {
-        *(u64 *)to = __raw_readq(from);
-        from += 8;
-        to += 8;
-        count -= 8;
+    while (count >= 4) {
+        *(u32 *)to = __raw_readl(from);
+        from += 4;
+        to += 4;
+        count -= 4;
     }
 
     while (count) {
@@ -188,18 +188,18 @@ void __memcpy_fromio(void *to, const volatile void __iomem *from, size_t count)
  */
 void __memcpy_toio(volatile void __iomem *to, const void *from, size_t count)
 {
-    while (count && !IS_ALIGNED((unsigned long)to, 8)) {
+    while (count && !IS_ALIGNED((unsigned long)to, 4)) {
         __raw_writeb(*(u8 *)from, to);
         from++;
         to++;
         count--;
     }
 
-    while (count >= 8) {
-        __raw_writeq(*(u64 *)from, to);
-        from += 8;
-        to += 8;
-        count -= 8;
+    while (count >= 4) {
+        __raw_writel(*(u32 *)from, to);
+        from += 4;
+        to += 4;
+        count -= 4;
     }
 
     while (count) {
@@ -734,9 +734,15 @@ static int scmi_domain_init(struct domain *d,
     if ( IS_ERR_OR_NULL(channel) )
         return -ENOENT;
 
+#ifdef CONFIG_ARM_32
+    printk(XENLOG_INFO
+           "scmi: Aquire SCMI channel id = 0x%x , domain_id = %d paddr = 0x%llx\n",
+           channel->chan_id, channel->domain_id, channel->paddr);
+#else
     printk(XENLOG_INFO
            "scmi: Aquire SCMI channel id = 0x%x , domain_id = %d paddr = 0x%lx\n",
            channel->chan_id, channel->domain_id, channel->paddr);
+#endif
 
     if ( is_hardware_domain(d) )
     {

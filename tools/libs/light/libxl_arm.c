@@ -972,8 +972,14 @@ static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
     int res;
     char buf[64];
 
+#ifdef CONFIG_ARM_32
+    snprintf(buf, sizeof(buf), "scp-shmem@%llx",
+             dom->sci_shmem_gfn << XC_PAGE_SHIFT);
+#else
     snprintf(buf, sizeof(buf), "scp-shmem@%lx",
              dom->sci_shmem_gfn << XC_PAGE_SHIFT);
+#endif
+
     res = fdt_begin_node(fdt, buf);
     if (res) return res;
 
