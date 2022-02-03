@@ -95,6 +95,12 @@ struct scmi_shared_mem {
     uint8_t msg_payload[];
 };
 
+struct dt_channel_addr {
+    u64 addr;
+    u64 size;
+    struct list_head list;
+};
+
 struct scmi_channel {
     int chan_id;
     int agent_id;
@@ -114,6 +120,7 @@ struct scmi_data {
 };
 
 static struct scmi_data scmi_data;
+
 
 /*
  * pack_scmi_header() - packs and returns 32-bit header
@@ -149,7 +156,6 @@ static inline int channel_is_free(struct scmi_channel *chan_info)
             & SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE ) ? 0 : -EBUSY;
 }
 
-// TODO move it to different place?
 /*
  * Copy data from IO memory space to "real" memory space.
  */
@@ -520,9 +526,69 @@ static struct dt_device_node *get_dt_node_from_property(
     return dt_find_node_by_phandle(be32_to_cpup(prop));
 }
 
+static int get_shmem_regions(struct list_head *head, u64 hyp_addr)
+{
+    struct dt_device_node *node;
+    int ret;
+    struct dt_channel_addr *lchan;
+    u64 laddr, lsize;
+
+    node = dt_find_compatible_node(NULL, NULL, SCMI_SHARED_MEMORY);
+    if ( !node )
+        return -ENOENT;
+
+    while ( node )
+    {
+        ret = dt_device_get_address(node, 0, &laddr, &lsize);
+        if ( ret )
+            return ret;
+
+        if ( laddr != hyp_addr )
+        {
+            lchan = xmalloc(struct dt_channel_addr);
+            if ( !lchan )
+                return -ENOMEM;
+            lchan->addr = laddr;
+            lchan->size = lsize;
+
+            list_add_tail(&lchan->list, head);
+        }
+
+        node = dt_find_compatible_node(node, NULL, SCMI_SHARED_MEMORY);
+    }
+
+    return 0;
+}
+
+static int read_hyp_channel_addr(struct dt_device_node *scmi_node,
+                                 u64 *addr, u64 *size)
+{
+    struct dt_device_node *shmem_node;
+    shmem_node = get_dt_node_from_property(scmi_node, "shmem");
+    if ( IS_ERR_OR_NULL(shmem_node) )
+    {
+        printk(XENLOG_ERR
+               "scmi: Device tree error, can't parse reserved memory %ld\n",
+               PTR_ERR(shmem_node));
+        return PTR_ERR(shmem_node);
+    }
+
+    return dt_device_get_address(shmem_node, 0, addr, size);
+}
+
+static void free_shmem_regions(struct list_head *addr_list)
+{
+    struct dt_channel_addr *curr, *_curr;
+
+    list_for_each_entry_safe (curr, _curr, addr_list, list)
+    {
+        list_del(&curr->list);
+        xfree(curr);
+    }
+}
+
 static __init bool scmi_probe(struct dt_device_node *scmi_node)
 {
-    struct dt_device_node *shmem_node, *scp_shmem_node;
     u64 addr, size;
     int ret, i;
     struct scmi_channel *channel, *agent_channel;
@@ -532,6 +598,8 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         int32_t status;
         uint32_t attributes;
     } rx;
+    struct dt_channel_addr *entry;
+    struct list_head addr_list;
 
     uint32_t func_id;
 
@@ -546,25 +614,7 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         return false;
     }
 
-    scp_shmem_node = dt_find_compatible_node(NULL, NULL, SCMI_SHARED_MEMORY);
-    if ( IS_ERR_OR_NULL(scp_shmem_node) )
-    {
-        printk(XENLOG_ERR
-               "scmi: Device tree error, can't parse shmem phandle %ld\n",
-               PTR_ERR(scp_shmem_node));
-        return false;
-    }
-
-    shmem_node = get_dt_node_from_property(scp_shmem_node, "memory-region");
-    if ( IS_ERR_OR_NULL(shmem_node) )
-    {
-        printk(XENLOG_ERR
-               "scmi: Device tree error, can't parse reserved memory %ld\n",
-               PTR_ERR(shmem_node));
-        return false;
-    }
-
-    ret = dt_device_get_address(shmem_node, 0, &addr, &size);
+    ret = read_hyp_channel_addr(scmi_node, &addr, &size);
     if ( IS_ERR_VALUE(ret) )
         return false;
 
@@ -574,13 +624,19 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         return false;
     }
 
+    INIT_LIST_HEAD(&addr_list);
+
+    ret = get_shmem_regions(&addr_list, addr);
+    if ( IS_ERR_VALUE(ret) )
+        goto out;
+
     channel = smc_create_channel(HYP_CHANNEL, func_id, addr);
     if ( IS_ERR(channel) )
-        return false;
+        goto out;
 
     ret = map_channel_memory(channel);
     if ( ret )
-        return false;
+        goto out;
 
     spin_lock(&scmi_data.channel_list_lock);
     channel->domain_id = DOMID_XEN;
@@ -592,19 +648,17 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
 
     ret = do_smc_xfer(channel, &hdr, NULL, 0, &rx, sizeof(rx));
     if ( ret )
-        goto clean;
+        goto error;
 
     ret = check_scmi_status(rx.status);
     if ( ret )
-        goto clean;
+        goto error;
 
     n_agents = FIELD_GET(MSG_N_AGENTS_MASK, rx.attributes);
     printk(XENLOG_DEBUG "scmi: Got agent count %d\n", n_agents);
 
-    n_agents =
-        (n_agents > size / PAGE_SIZE) ? size / PAGE_SIZE : n_agents;
-
-    for ( i = 1; i < n_agents; i++ )
+    i = 1;
+    list_for_each_entry(entry, &addr_list, list)
     {
         uint32_t tx_agent_id = 0xFFFFFFFF;
         struct {
@@ -614,16 +668,16 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         } da_rx;
 
         agent_channel = smc_create_channel(i, func_id,
-                                           addr + i * PAGE_SIZE);
+                                           entry->addr);
         if ( IS_ERR(agent_channel) )
         {
             ret = PTR_ERR(agent_channel);
-            goto clean;
+            goto error;
         }
 
         ret = map_channel_memory(agent_channel);
         if ( ret )
-            goto clean;
+            goto error;
 
         hdr.id = SCMI_BASE_DISCOVER_AGENT;
         hdr.type = 0;
@@ -634,27 +688,34 @@ static __init bool scmi_probe(struct dt_device_node *scmi_node)
         if ( ret )
         {
             unmap_channel_memory(agent_channel);
-            goto clean;
+            goto error;
         }
 
         unmap_channel_memory(agent_channel);
 
         ret = check_scmi_status(da_rx.status);
         if ( ret )
-            goto clean;
+            goto error;
 
         printk(XENLOG_DEBUG "scmi: status=0x%x id=0x%x name=%s\n",
                 da_rx.status, da_rx.agent_id, da_rx.name);
 
         agent_channel->agent_id = da_rx.agent_id;
+
+        if ( i == n_agents )
+            break;
+
+        i++;
     }
 
     scmi_data.initialized = true;
-    return true;
+    goto out;
 
-clean:
+error:
     unmap_channel_memory(channel);
     free_channel_list();
+out:
+    free_shmem_regions(&addr_list);
     return ret == 0;
 }
 
