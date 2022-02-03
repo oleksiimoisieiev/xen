@@ -434,6 +434,10 @@ typedef uint64_t xen_callback_t;
 #define GUEST_ACPI_BASE xen_mk_ullong(0x20000000)
 #define GUEST_ACPI_SIZE xen_mk_ullong(0x02000000)
 
+/* SCMI shared memory address */
+#define GUEST_SCI_SHMEM_BASE   xen_mk_ullong(0x05ff0000)
+#define GUEST_SCI_SHMEM_SIZE   xen_mk_ullong(0x01000)
+
 /* PL011 mappings */
 #define GUEST_PL011_BASE    xen_mk_ullong(0x22000000)
 #define GUEST_PL011_SIZE    xen_mk_ullong(0x00001000)

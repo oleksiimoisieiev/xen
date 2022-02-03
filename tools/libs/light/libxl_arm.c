@@ -966,14 +966,19 @@ static int copy_node_by_path(libxl__gc *gc, const char *path,
     return 0;
 }
 
-static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
-                           struct xc_dom_image *dom)
+static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt)
 {
     int res;
     char buf[64];
 
+#ifdef CONFIG_ARM_32
     snprintf(buf, sizeof(buf), "scp-shmem@%lx",
-             dom->sci_shmem_gfn << XC_PAGE_SHIFT);
+             GUEST_SCI_SHMEM_BASE);
+#else
+    snprintf(buf, sizeof(buf), "scp-shmem@%llx",
+             GUEST_SCI_SHMEM_BASE);
+#endif
+
     res = fdt_begin_node(fdt, buf);
     if (res) return res;
 
@@ -982,7 +987,7 @@ static int make_scmi_shmem_node(libxl__gc *gc, void *fdt, void *pfdt,
 
     res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS,
                     GUEST_ROOT_SIZE_CELLS, 1,
-                    dom->sci_shmem_gfn << XC_PAGE_SHIFT, XC_PAGE_SHIFT);
+                    GUEST_SCI_SHMEM_BASE, GUEST_SCI_SHMEM_SIZE);
     if (res) return res;
 
     res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_SCMI);
@@ -1355,7 +1360,7 @@ next_resize:
         }
 
         if (info->arm_sci == LIBXL_ARM_SCI_TYPE_SCMI_SMC)
-            FDT( make_scmi_shmem_node(gc, fdt, pfdt, dom) );
+            FDT( make_scmi_shmem_node(gc, fdt, pfdt) );
 
         FDT( make_firmware_node(gc, fdt, pfdt, info->tee, info->arm_sci) );
 
