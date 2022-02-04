@@ -33,6 +33,14 @@ config ACPI
 	  Advanced Configuration and Power Interface (ACPI) support for Xen is
 	  an alternative to device tree on ARM64.
 
+config HOST_DTB_EXPORT
+	bool "Export host device tree to hypfs if enabled"
+	depends on ARM && HYPFS && !ACPI
+	---help---
+
+	  Export host device-tree to hypfs so toolstack can have an access for the
+	  host device tree from Dom0. If you unsure say N.
+
 config GICV3
 	bool "GICv3 driver"
 	depends on ARM_64 && !NEW_VGIC
