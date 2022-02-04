@@ -191,6 +191,17 @@ The scheduling granularity of a cpupool.
 Writing a value is allowed only for cpupools with no cpu assigned and if the
 architecture is supporting different scheduling granularities.
 
+#### /devicetree/
+
+A directory, which includes exported host device-tree.
+
+#### /devicetree/*/
+
+Exported host device-tree, represented as the hierarchy of directories, one
+per device-tree node. The directory name is the resolved node name plus
+address. Properties are represented as hypfs properties in the directory.
+The value of each property is the exact binary data from the host device-tree.
+
 #### /params/
 
 A directory of runtime parameters.
