@@ -87,6 +87,61 @@ static inline u64 __raw_readq(const volatile void __iomem *addr)
         return val;
 }
 
+/*
+ * Copy data from IO memory space to "real" memory space.
+ */
+static void inline __memcpy_fromio(void *to, const volatile void __iomem *from,
+                                   size_t count)
+{
+    while (count && !IS_ALIGNED((unsigned long)from, 8)) {
+        *(uint8_t *)to = __raw_readb(from);
+        from++;
+        to++;
+        count--;
+    }
+
+    while (count >= 8) {
+        *(uint64_t *)to = __raw_readq(from);
+        from += 8;
+        to += 8;
+        count -= 8;
+    }
+
+    while (count) {
+        *(uint8_t *)to = __raw_readb(from);
+        from++;
+        to++;
+        count--;
+    }
+}
+
+/*
+ * Copy data from "real" memory space to IO memory space.
+ */
+static inline void __memcpy_toio(volatile void __iomem *to, const void *from, size_t count)
+{
+    while (count && !IS_ALIGNED((unsigned long)to, 8)) {
+        __raw_writeb(*(uint8_t *)from, to);
+        from++;
+        to++;
+        count--;
+    }
+
+    while (count >= 8) {
+        __raw_writeq(*(uint64_t *)from, to);
+        from += 8;
+        to += 8;
+        count -= 8;
+    }
+
+    while (count) {
+        __raw_writeb(*(uint8_t *)from, to);
+        from++;
+        to++;
+        count--;
+    }
+}
+
 /* IO barriers */
 #define __iormb()               rmb()
 #define __iowmb()               wmb()
