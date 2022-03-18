@@ -1881,6 +1881,7 @@ const libxl__device_type *device_type_tbl[] = {
     &libxl__vsnd_devtype,
     &libxl__vgsx_devtype,
     &libxl__vcamera_devtype,
+    &libxl__renesas_vmq_devtype,
     NULL
 };
 
