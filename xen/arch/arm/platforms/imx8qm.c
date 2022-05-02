@@ -66,19 +66,6 @@ static const char * const imx8qm_dt_compat[] __initconst =
     NULL
 };
 
-static const struct dt_device_match imx8qm_blacklist_dev[] __initconst =
-{
-    /*
-     * imx8_gpu_ss is not a real device node. Its reg property does not describe
-     * iomem what could/should be mapped or passed through by XEN. We blacklist
-     * the node because we have no good way to explain those specifics to XEN.
-     * As a result, we will have no graphics in Dom0. Though this node freely
-     * can be noted in DomU's partial device tree, thus DomU will have graphics.
-     */
-    DT_MATCH_COMPATIBLE("fsl,imx8-gpu-ss"),
-    { /* sentinel */ },
-};
-
 struct imx8qm_domain {
     domid_t domain_id;
     u32 partition_id;
@@ -775,7 +762,6 @@ PLATFORM_START(imx8qm, "i.MX 8")
     .specific_mapping = imx8qm_specific_mapping,
     .reset = imx8qm_system_reset,
     .poweroff = imx8qm_system_off,
-    .blacklist_dev = imx8qm_blacklist_dev,
     .smc = imx8qm_smc,
     .handle_hvc = imx8qm_handle_hvc,
     .domain_destroy = imx8qm_domain_destroy,
