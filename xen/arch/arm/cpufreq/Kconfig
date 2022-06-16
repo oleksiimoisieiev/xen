@@ -1,7 +1,7 @@
 config CPUFREQ_SCPI
 	bool "Enable cpufreq_scpi driver"
-	default y
-	depends on HAS_CPUFREQ && !CPUFREQ_IMX
+	default n
+	depends on HAS_CPUFREQ
 	help
 	  Enable cpufreq_scpi driver. This driver implements CPU
 	  frequency scaling mechaninsm via SCPI protocol. It uses
@@ -11,7 +11,7 @@ config CPUFREQ_SCPI
 config CPUFREQ_IMX
 	bool "Enable cpufreq_imx driver"
 	default n
-	depends on HAS_CPUFREQ && !CPUFREQ_SCPI
+	depends on HAS_CPUFREQ
 	help
 	  Enable cpufreg_imx driver. This driver implements CPU
 	  frequency scaling for i.MX8 boards. It uses scfw rpc to
