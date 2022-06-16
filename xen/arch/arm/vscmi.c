@@ -19,9 +19,11 @@
 #include <xen/guest_pm.h>
 #include <xen/sched.h>
 #include <xen/spinlock.h>
+#include <xen/vmap.h>
 #include <asm/io.h>
 #include <asm/vscmi.h>
 #include <asm/guest_access.h>
+#include "asm-arm/mm.h"
 #include "scmi_protocol.h"
 
 #define SCMI_VERSION 0x10000
@@ -58,6 +60,21 @@ int vcpu_vscmi_init(struct vcpu *vcpu)
     return 0;
 }
 
+static int mark_shmem_free(mfn_t scmi_mfn)
+{
+    struct scmi_shared_mem *data;
+    data = (struct scmi_shared_mem*)vmap(&scmi_mfn, 1);
+    if ( !data )
+    {
+        gprintk(XENLOG_ERR, "Could not allocate buffer for SCMI SHM\n");
+        return -ENOMEM;
+    }
+
+    data->channel_status = SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE;
+    vunmap(data);
+    return 0;
+}
+
 int domain_vscmi_init(struct domain *d, gfn_t shmem_gfn)
 {
     int rc;
@@ -84,7 +101,7 @@ int domain_vscmi_init(struct domain *d, gfn_t shmem_gfn)
     if ( !rc )
         guest_pm_force_enable(d);
 
-    return rc;
+    return mark_shmem_free(page_to_mfn(d->arch.scmi_base_pg));
 }
 
 void domain_vscmi_free(struct domain *d)
