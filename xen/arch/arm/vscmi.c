@@ -82,7 +82,7 @@ int domain_vscmi_init(struct domain *d, gfn_t shmem_gfn)
     if ( gfn_eq(shmem_gfn, INVALID_GFN) )
         return -EINVAL;
 
-    d->arch.scmi_base_pg = alloc_domheap_page(0, 0);
+    d->arch.scmi_base_pg = alloc_domheap_page(d, 0);
     if ( !d->arch.scmi_base_pg )
         return -ENOMEM;
 
