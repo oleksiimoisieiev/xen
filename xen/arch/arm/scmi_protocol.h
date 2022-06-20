@@ -247,5 +247,26 @@ struct scmi_msg_resp_perf_describe_levels {
 	} opp[0];
 };
 
+enum scmi_sensor_protocol_cmd {
+	SENSOR_DESCRIPTION_GET = 0x3,
+	SENSOR_AXIS_DESCRIPTION_GET = 0x4,
+	SENSOR_LIST_UPDATE_INTERVALS = 0x5,
+	SENSOR_TRIP_POINT_NOTIFY = 0x6,
+	SENSOR_TRIP_POINT_CONFIG = 0x7,
+	SENSOR_CONFIG_GET = 0x8,
+	SENSOR_CONFIG_SET = 0x9,
+	SENSOR_READING_GET = 0xa,
+	SENSO_CONTINIOUS_UPDATE_NOTFY = 0xb,
+};
+
+struct scmi_msg_resp_sensor_attributes {
+	__u8 reserved;
+	__u8 async_count;
+	__le16 sens_count;
+	__le32 sens_addr_low;
+	__le32 sens_addr_high;
+	__le32 sens_reg_len;
+};
+
 #endif /* ARM_SCMI_PROTOCOL_H */
 

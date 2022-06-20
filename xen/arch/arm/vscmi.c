@@ -317,6 +317,39 @@ static void handle_perf_req(struct scmi_shared_mem *data)
     }
 }
 
+static void handle_sensor_req(struct scmi_shared_mem *data)
+{
+    switch ( SCMI_HDR_MSG_ID(data->msg_header) )
+    {
+    case PROTOCOL_VERSION:
+        writel_relaxed(SCMI_SUCCESS, data->msg_payload);
+        writel_relaxed(SCMI_VERSION, data->msg_payload + 4);
+        data->length = sizeof(uint32_t) * 3;
+        break;
+    case PROTOCOL_ATTRIBUTES:
+    {
+        struct scmi_msg_resp_sensor_attributes* attrs =
+            (struct scmi_msg_resp_sensor_attributes*)(data->msg_payload + 4);
+        writel_relaxed(SCMI_SUCCESS, data->msg_payload);
+
+        attrs->reserved = 0;
+        attrs->async_count = 0;
+        attrs->sens_count = cpu_to_le16(3); /* TODO amoi get sensor count */
+        attrs->sens_addr_low = cpu_to_le32(0);
+        attrs->sens_addr_high = cpu_to_le32(0);
+        attrs->sens_reg_len = cpu_to_le32(0);
+        data->length = sizeof(*attrs) + sizeof(uint32_t) * 2;
+        break;
+    }
+
+    default:
+        writel_relaxed(SCMI_ERR_SUPPORT, data->msg_payload);
+        data->length = sizeof(uint32_t) * 2;
+        break;
+    }
+
+}
+
 bool vscmi_handle_call(struct cpu_user_regs *regs)
 {
     struct scmi_shared_mem *data;
@@ -360,6 +393,10 @@ bool vscmi_handle_call(struct cpu_user_regs *regs)
     case SCMI_PROTOCOL_PERF:
         handle_perf_req(data);
         break;
+    case SCMI_PROTOCOL_SENSOR:
+        handle_sensor_req(data);
+        break;
+
     default:
         writel_relaxed(SCMI_ERR_SUPPORT, data->msg_payload);
         data->length = sizeof(uint32_t) * 2;

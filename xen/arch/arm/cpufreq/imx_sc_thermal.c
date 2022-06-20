@@ -3,35 +3,28 @@
  * Copyright 2018-2020 NXP.
  */
 
-#include <xen/config.h>
-#include <xen/device_tree.h>
-#include <xen/err.h>
-#include <xen/vmap.h>
-#include <xen/init.h>
-#include <xen/mm.h>
-#include <xen/sched.h>
-#include <asm/device.h>
-#include <asm/io.h>
+#include <dt-bindings/firmware/imx/rsrc.h>
+#include <linux/device_cooling.h>
+#include <linux/err.h>
+#include <linux/firmware/imx/sci.h>
+#include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/thermal.h>
 
-#include "../platforms/scfw_export_hyper/svc/misc/misc_api.h"
+#include "thermal_core.h"
+#include "thermal_hwmon.h"
 
-#define SC_MISC_FUNC_GET_TEMP	13
-#define SC_TEMP_PASSIVE_COOL_DELTA	10000
-
-
-enum thermal_trend {
-	THERMAL_TREND_STABLE, /* temperature is stable */
-	THERMAL_TREND_RAISING, /* temperature is raising */
-	THERMAL_TREND_DROPPING, /* temperature is dropping */
-	THERMAL_TREND_RAISE_FULL, /* apply highest cooling action */
-	THERMAL_TREND_DROP_FULL, /* apply lowest cooling action */
-};
+#define IMX_SC_MISC_FUNC_GET_TEMP	13
+#define IMX_SC_TEMP_PASSIVE_COOL_DELTA	10000
 
 static struct imx_sc_ipc *thermal_ipc_handle;
 
 struct imx_sc_sensor {
 	struct thermal_zone_device *tzd;
-	uint32_t resource_id;
+	u32 resource_id;
 	struct thermal_cooling_device *cdev;
 	int temp_passive;
 	int temp_critical;
@@ -48,29 +41,53 @@ enum imx_thermal_trip {
 	IMX_TRIP_NUM,
 };
 
+struct req_get_temp {
+	u16 resource_id;
+	u8 type;
+} __packed __aligned(4);
+
+struct resp_get_temp {
+	s16 celsius;
+	s8 tenths;
+} __packed __aligned(4);
+
+struct imx_sc_msg_misc_get_temp {
+	struct imx_sc_rpc_msg hdr;
+	union {
+		struct req_get_temp req;
+		struct resp_get_temp resp;
+	} data;
+} __packed __aligned(4);
+
 static int imx_sc_thermal_get_temp(void *data, int *temp)
 {
-	sc_err_t ret;
-	int16_t celsius;
-	int8_t tenths;
+	struct imx_sc_msg_misc_get_temp msg;
+	struct imx_sc_rpc_msg *hdr = &msg.hdr;
 	struct imx_sc_sensor *sensor = data;
+	int ret;
 
-	ret = sc_misc_get_temp(thermal_ipc_handle, sensor->resource_id, *temp,
-			&celsius, &tenths);
+	msg.data.req.resource_id = sensor->resource_id;
+	msg.data.req.type = IMX_SC_C_TEMP;
 
-	if (ret)
-	{
+	hdr->ver = IMX_SC_RPC_VERSION;
+	hdr->svc = IMX_SC_RPC_SVC_MISC;
+	hdr->func = IMX_SC_MISC_FUNC_GET_TEMP;
+	hdr->size = 2;
+
+	ret = imx_scu_call_rpc(thermal_ipc_handle, &msg, true);
+	if (ret) {
 		/*
 		 * if the SS power domain is down, read temp will fail, so
 		 * we can print error once and return 0 directly.
 		 */
-		printk(XENLOG_ERR "read temp sensor %d failed, could be SS powered off, ret %d\n",
-			sensor->resource_id, ret);
+		pr_err_once("read temp sensor %d failed, could be SS powered off, ret %d\n",
+			     sensor->resource_id, ret);
 		*temp = 0;
 		return 0;
 	}
 
-	*temp = celsius * 1000 + tenths * 100;
+	*temp = msg.data.resp.celsius * 1000 + msg.data.resp.tenths * 100;
+
 	return 0;
 }
 
@@ -86,7 +103,7 @@ static int imx_sc_thermal_get_trend(void *p, int trip, enum thermal_trend *trend
 					     sensor->temp_critical;
 
 	if (sensor->tzd->temperature >=
-		(trip_temp - SC_TEMP_PASSIVE_COOL_DELTA))
+		(trip_temp - IMX_SC_TEMP_PASSIVE_COOL_DELTA))
 		*trend = THERMAL_TREND_RAISE_FULL;
 	else
 		*trend = THERMAL_TREND_DROP_FULL;
