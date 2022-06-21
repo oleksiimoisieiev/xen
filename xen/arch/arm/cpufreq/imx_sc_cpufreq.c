@@ -77,9 +77,33 @@ int cpufreq_cpu_init(unsigned int cpuid)
     return 0;
 }
 
+//TODO move to common part
+static int thermal_init(void)
+{
+	struct dt_device_node *ths;
+	unsigned int num_ths = 0;
+	int rc;
+
+	dt_for_each_device_node(dt_host, ths) {
+		rc = device_init(ths, DEVICE_THS, NULL);
+		if (!rc)
+			num_ths ++;
+	}
+
+	return (num_ths > 0) ? 0 : -ENODEV;
+}
+
 static int __init cpufreq_imx_driver_init(void)
 {
+	int ret;
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+
+    ret = thermal_init();
+    if ( ret )
+    {
+        printk("failed to initialize thermal (%d)\n", ret);
+        return ret;
+    }
 
     return cpufreq_register_driver(&imx_cpufreq_driver);
 }

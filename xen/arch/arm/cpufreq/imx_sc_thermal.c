@@ -44,6 +44,10 @@
 extern sc_ipc_t mu_ipcHandle;
 extern bool cpufreq_debug;
 
+//TODO move it to common code
+#define DBG(fmt, args) printk( XENLOG_INFO "DEBUG %s:%d:%s(): " fmt, \
+		__FILE__, __LINE__, __func__, ##args);
+
 //TODO implement
 //extern int imx_cpufreq_throttle(bool enable);
 
@@ -54,6 +58,9 @@ extern bool cpufreq_debug;
 #define CELSIUS(temp) temp >> 3
 #define TENTH(temp) (temp - (temp >> 3) * 1000) / 100
 #define GET_TEMP(celsius, tenths) celsius * 1000 + tenths * 100
+
+#define PASSIVE "passive"
+#define CRITICAL "crirical"
 
 #define MAX_SENSORS 2
 
@@ -131,14 +138,64 @@ static int imx_sc_thermal_set_alarm(struct imx_sc_sensor *sensor)
 	return 0;
 }
 
+#define CPU_THERMAL0 "cpu-thermal0"
+#define CPU_THERMAL1 "cpu-thermal1"
+#define PMIC_THERMAL0 "pmic-thermal0"
+
+static bool __init imx_dt_node_is_cpu(struct dt_device_node *node)
+{
+	//TODO test
+	if ((strcmp(node->name, CPU_THERMAL0) == 0) ||
+		(strcmp(node->name, CPU_THERMAL1) == 0) ||
+		(strcmp(node->name, PMIC_THERMAL0) == 0))
+		return true;
+
+	return false;
+}
+
 static int __init imx_dt_get_sensor_id(struct dt_device_node *node, uint32_t *id)
 {
+	struct dt_phandle_args sensor_specs;
+	int ret;
+
+	if (sensor_specs.args_count > 1) {
+		printk(XENLOG_WARNING "%s: too many cells in sensor specifier %d\n",
+				node->name, sensor_specs.args_count);
+	}
+
+	*id = sensor_specs.args_count ? sensor_specs.args[0] : 0; 
 	return 0;
 }
 
 static int __init imx_dt_get_trips(struct dt_device_node *node,
 		int *crit, int *passive)
 {
+	struct dt_device_node *child, *np;
+	int ret;
+	u32 temp;
+	char buf[36];
+
+	np = dt_find_node_by_name(node, "trips");
+	if (!np)
+		return -ENODEV;
+
+	dt_for_each_child_node(np, child) {
+		ret = dt_property_read_string(child, "type", (const char **)&buf);
+		if (ret)
+			return -ENOENT;
+
+		//TODO what to do with hysteresis??
+		ret = dt_property_read_u32(child, "temperature", &temp);
+		if (ret)
+			return -ENOENT;
+
+		if (strcmp(buf, PASSIVE) == 0)
+			*passive = temp;
+		else if (strcmp(buf, CRITICAL) == 0)
+			*crit = temp;
+		else
+			printk(XENLOG_WARNING "Unknown trip type %s. Ignorig.\n", buf);
+	}
 	return 0;
 }
 
@@ -165,6 +222,9 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 		return -ENODEV;
 
 	dt_for_each_child_node(np, child) {
+		if (!imx_dt_node_is_cpu(child))
+			continue;
+
 		sensor = xzalloc(struct imx_sc_sensor);
 		if (!sensor) {
 			goto err_free;
@@ -204,7 +264,6 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 
 	return 0;
 
-
 err_free:
 	xfree(thermal_priv);
 
@@ -235,7 +294,6 @@ static int __init imx_sc_thermal_init(struct dt_device_node *np,
 
 	return 0;
 }
-
 
 DT_DEVICE_START(imx_sc_thermal, "i.MX8 SC THS", DEVICE_THS)
 	.dt_match = imx_sc_thermal_table,
