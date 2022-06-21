@@ -1,238 +1,243 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright 2018-2020 NXP.
+ *  i.MX8 SC firmware thermal driver.
+ *
+ *  Copyright 2018-2020 NXP.
+ *  Based on drivers/thermal/imx_sc_thermal.c
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; version 2 of the License.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  General Public License for more details.
+ *
+ *  Based on Linux drivers/thermal/imx_sc_thermal
+ *  => commit a11753a89ec610768301d4070e10b8bd60fde8cd
+ *  git://source.codeaurora.org/external/imx/linux-imx
+ *  branch: lf-5.10.y
+ *
+ *  Xen modification:
+ *  Oleksii Moisieiev <oleksii_moisieiev@epam.com>
+ *  Copyright (C) 2022 EPAM Systems Inc.
+ *
  */
 
-#include <dt-bindings/firmware/imx/rsrc.h>
-#include <linux/device_cooling.h>
-#include <linux/err.h>
-#include <linux/firmware/imx/sci.h>
-#include <linux/module.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
-#include <linux/platform_device.h>
-#include <linux/slab.h>
-#include <linux/thermal.h>
+#include <xen/device_tree.h>
+#include <xen/tasklet.h>
+#include <xen/delay.h>
+#include <xen/err.h>
+#include <xen/vmap.h>
+#include <xen/irq.h>
+#include <xen/shutdown.h>
+#include <xen/init.h>
+#include <xen/mm.h>
+#include <asm/device.h>
+#include <asm/io.h>
 
-#include "thermal_core.h"
-#include "thermal_hwmon.h"
+#include "../platforms/scfw_export_hyper/main/scfw.h"
+#include "../platforms/scfw_export_hyper/svc/misc/misc_api.h"
+#include "xen/config.h"
 
-#define IMX_SC_MISC_FUNC_GET_TEMP	13
-#define IMX_SC_TEMP_PASSIVE_COOL_DELTA	10000
+//TODO do I need some include ?
+extern sc_ipc_t mu_ipcHandle;
+extern bool cpufreq_debug;
 
-static struct imx_sc_ipc *thermal_ipc_handle;
+//TODO implement
+//extern int imx_cpufreq_throttle(bool enable);
+
+//static bool throttle_enabled = false;
+//
+//TODO move to common place
+#define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
+#define CELSIUS(temp) temp >> 3
+#define TENTH(temp) (temp - (temp >> 3) * 1000) / 100
+#define GET_TEMP(celsius, tenths) celsius * 1000 + tenths * 100
+
+#define MAX_SENSORS 2
 
 struct imx_sc_sensor {
-	struct thermal_zone_device *tzd;
-	u32 resource_id;
-	struct thermal_cooling_device *cdev;
+	uint32_t resource_id;
 	int temp_passive;
 	int temp_critical;
 };
 
-struct imx_sc_thermal_data {
-	struct imx_sc_sensor *sensor;
+struct imx_sc_thermal_priv {
+//	struct device *dev;
+	struct tasklet work;
+	struct dt_device_node *np;
+	spinlock_t lock;
+	struct imx_sc_sensor *sensors[MAX_SENSORS];
 };
 
-/* The driver support 1 passive trip point and 1 critical trip point */
-enum imx_thermal_trip {
-	IMX_TRIP_PASSIVE,
-	IMX_TRIP_CRITICAL,
-	IMX_TRIP_NUM,
-};
-
-struct req_get_temp {
-	u16 resource_id;
-	u8 type;
-} __packed __aligned(4);
-
-struct resp_get_temp {
-	s16 celsius;
-	s8 tenths;
-} __packed __aligned(4);
-
-struct imx_sc_msg_misc_get_temp {
-	struct imx_sc_rpc_msg hdr;
-	union {
-		struct req_get_temp req;
-		struct resp_get_temp resp;
-	} data;
-} __packed __aligned(4);
+static struct imx_sc_thermal_priv *thermal_priv;
 
 static int imx_sc_thermal_get_temp(void *data, int *temp)
 {
-	struct imx_sc_msg_misc_get_temp msg;
-	struct imx_sc_rpc_msg *hdr = &msg.hdr;
-	struct imx_sc_sensor *sensor = data;
 	int ret;
+	int16_t celsius;
+	int8_t tenths;
+	struct imx_sc_sensor *sensor = data;
 
-	msg.data.req.resource_id = sensor->resource_id;
-	msg.data.req.type = IMX_SC_C_TEMP;
+	ret = sc_misc_get_temp(mu_ipcHandle, sensor->resource_id, SC_MISC_TEMP,
+			&celsius, &tenths);
 
-	hdr->ver = IMX_SC_RPC_VERSION;
-	hdr->svc = IMX_SC_RPC_SVC_MISC;
-	hdr->func = IMX_SC_MISC_FUNC_GET_TEMP;
-	hdr->size = 2;
-
-	ret = imx_scu_call_rpc(thermal_ipc_handle, &msg, true);
 	if (ret) {
 		/*
 		 * if the SS power domain is down, read temp will fail, so
 		 * we can print error once and return 0 directly.
 		 */
-		pr_err_once("read temp sensor %d failed, could be SS powered off, ret %d\n",
+		printk(XENLOG_ERR "read temp sensor %d failed, could be SS powered off, ret %d\n",
 			     sensor->resource_id, ret);
 		*temp = 0;
 		return 0;
 	}
 
-	*temp = msg.data.resp.celsius * 1000 + msg.data.resp.tenths * 100;
+	*temp = GET_TEMP(celsius, tenths);
 
 	return 0;
 }
 
-static int imx_sc_thermal_get_trend(void *p, int trip, enum thermal_trend *trend)
+static int imx_sc_thermal_set_alarm(struct imx_sc_sensor *sensor)
 {
-	int trip_temp;
-	struct imx_sc_sensor *sensor = p;
-
-	if (!sensor->tzd)
-		return 0;
-
-	trip_temp = (trip == IMX_TRIP_PASSIVE) ? sensor->temp_passive :
-					     sensor->temp_critical;
-
-	if (sensor->tzd->temperature >=
-		(trip_temp - IMX_SC_TEMP_PASSIVE_COOL_DELTA))
-		*trend = THERMAL_TREND_RAISE_FULL;
-	else
-		*trend = THERMAL_TREND_DROP_FULL;
-
-	return 0;
-}
-
-static int imx_sc_thermal_set_trip_temp(void *p, int trip, int temp)
-{
-	struct imx_sc_sensor *sensor = p;
-
-	if (trip == IMX_TRIP_CRITICAL)
-		sensor->temp_critical = temp;
-
-	if (trip == IMX_TRIP_PASSIVE)
-		sensor->temp_passive = temp;
-
-	return 0;
-}
-
-static const struct thermal_zone_of_device_ops imx_sc_thermal_ops = {
-	.get_temp = imx_sc_thermal_get_temp,
-	.get_trend = imx_sc_thermal_get_trend,
-	.set_trip_temp = imx_sc_thermal_set_trip_temp,
-};
-
-static int imx_sc_thermal_probe(struct platform_device *pdev)
-{
-	struct device_node *np, *child, *sensor_np;
-	struct imx_sc_sensor *sensor;
-	const struct thermal_trip *trip;
+	unsigned long flags;
 	int ret;
+	spin_lock_irqsave(&thermal_priv->lock, flags);
+	//TODO test it
 
-	ret = imx_scu_get_handle(&thermal_ipc_handle);
-	if (ret)
-		return ret;
-
-	np = of_find_node_by_name(NULL, "thermal-zones");
-	if (!np)
-		return -ENODEV;
-
-	sensor_np = of_node_get(pdev->dev.of_node);
-
-	for_each_available_child_of_node(np, child) {
-		sensor = devm_kzalloc(&pdev->dev, sizeof(*sensor), GFP_KERNEL);
-		if (!sensor) {
-			of_node_put(child);
-			of_node_put(sensor_np);
-			return -ENOMEM;
-		}
-
-		ret = thermal_zone_of_get_sensor_id(child,
-						    sensor_np,
-						    &sensor->resource_id);
-		if (ret < 0) {
-			dev_err(&pdev->dev,
-				"failed to get valid sensor resource id: %d\n",
-				ret);
-			of_node_put(child);
-			break;
-		}
-
-		sensor->tzd = devm_thermal_zone_of_sensor_register(&pdev->dev,
-								   sensor->resource_id,
-								   sensor,
-								   &imx_sc_thermal_ops);
-		if (IS_ERR(sensor->tzd)) {
-			dev_err(&pdev->dev, "failed to register thermal zone\n");
-			ret = PTR_ERR(sensor->tzd);
-			of_node_put(child);
-			break;
-		}
-
-		if (devm_thermal_add_hwmon_sysfs(sensor->tzd))
-			dev_warn(&pdev->dev, "failed to add hwmon sysfs attributes\n");
-
-		trip = of_thermal_get_trip_points(sensor->tzd);
-		sensor->temp_passive = trip[0].temperature;
-		sensor->temp_critical = trip[1].temperature;
-
-		sensor->cdev = devfreq_cooling_register();
-		if (IS_ERR(sensor->cdev)) {
-			dev_err(&pdev->dev,
-				"failed to register devfreq cooling device: %d\n",
-				ret);
-			return ret;
-		}
-
-		ret = thermal_zone_bind_cooling_device(sensor->tzd,
-			IMX_TRIP_PASSIVE,
-			sensor->cdev,
-			THERMAL_NO_LIMIT,
-			THERMAL_NO_LIMIT,
-			THERMAL_WEIGHT_DEFAULT);
+	if (sensor->temp_critical) {
+		ret = sc_misc_set_temp(mu_ipcHandle, sensor->resource_id,
+				SC_MISC_TEMP_HIGH, CELSIUS(sensor->temp_critical),
+				TENTH(sensor->temp_critical));
 		if (ret) {
-			dev_err(&sensor->tzd->device,
-				"binding zone %s with cdev %s failed:%d\n",
-				sensor->tzd->type, sensor->cdev->type, ret);
-			devfreq_cooling_unregister(sensor->cdev);
+			printk(XENLOG_ERR "Error setting HIGH temp alarm, ret = %d \n", ret);
 			return ret;
 		}
 	}
 
-	of_node_put(sensor_np);
+	if (sensor->temp_passive) {
+		ret = sc_misc_set_temp(mu_ipcHandle, sensor->resource_id,
+				SC_MISC_TEMP_LOW, CELSIUS(sensor->temp_passive),
+				TENTH(sensor->temp_passive));
+		if (ret) {
+			printk(XENLOG_ERR "Error setting HIGH temp alarm, ret = %d \n", ret);
+			return ret;
+		}
+	}
 
-	return ret;
+	spin_unlock_irqrestore(&thermal_priv->lock, flags);
+
+	return 0;
 }
 
-static int imx_sc_thermal_remove(struct platform_device *pdev)
+static int __init imx_dt_get_sensor_id(struct dt_device_node *node, uint32_t *id)
 {
 	return 0;
 }
 
-static const struct of_device_id imx_sc_thermal_table[] = {
+static int __init imx_dt_get_trips(struct dt_device_node *node,
+		int *crit, int *passive)
+{
+	return 0;
+}
+
+static int __init imx_sc_thermal_probe(struct dt_device_node *np)
+{
+	struct dt_device_node *child;
+	struct imx_sc_sensor *sensor;
+	int index = 0;
+	int temp;
+	int ret;
+
+	if (thermal_priv)
+		return -EEXIST;
+
+	thermal_priv = xzalloc(struct imx_sc_thermal_priv);
+	if (!thermal_priv)
+		return -ENOMEM;
+
+	spin_lock_init(&thermal_priv->lock);
+	thermal_priv->np = np;
+
+	np = dt_find_node_by_name(NULL, "thermal-zones");
+	if (!np)
+		return -ENODEV;
+
+	dt_for_each_child_node(np, child) {
+		sensor = xzalloc(struct imx_sc_sensor);
+		if (!sensor) {
+			goto err_free;
+		}
+
+		ret = imx_dt_get_sensor_id(child, &sensor->resource_id);
+		if (ret < 0) {
+			printk(XENLOG_ERR
+				"failed to get valid sensor resource id: %d\n",
+				ret);
+			break;
+		}
+
+		ret = imx_dt_get_trips(child, &sensor->temp_critical,
+				&sensor->temp_passive);
+		if (ret) {
+			printk(XENLOG_ERR "Wrong format of the trip dt node");
+			break;
+		}
+		
+		ret = imx_sc_thermal_set_alarm(sensor);
+		if (ret) {
+			printk(XENLOG_ERR "Unable to set alarm for sensor %d\n",
+					sensor->resource_id);
+			break;
+		}
+
+		if (index >= MAX_SENSORS)
+			break;
+
+		thermal_priv->sensors[index++] = sensor;
+		//TODO remove it
+		imx_sc_thermal_get_temp(sensor, &temp);
+		printk(XENLOG_INFO "sensor rcid = %d temp %d\n", sensor->resource_id,
+				temp);
+	}
+
+	return 0;
+
+
+err_free:
+	xfree(thermal_priv);
+
+	return ret;
+}
+//TODO cleanup function
+
+static const struct dt_device_match imx_sc_thermal_table[] __initconst = {
 	{ .compatible = "fsl,imx-sc-thermal", },
-	{}
+	{ },
 };
-MODULE_DEVICE_TABLE(of, imx_sc_thermal_table);
 
-static struct platform_driver imx_sc_thermal_driver = {
-		.probe = imx_sc_thermal_probe,
-		.remove	= imx_sc_thermal_remove,
-		.driver = {
-			.name = "imx-sc-thermal",
-			.of_match_table = imx_sc_thermal_table,
-		},
-};
-module_platform_driver(imx_sc_thermal_driver);
+static int __init imx_sc_thermal_init(struct dt_device_node *np,
+		const void *data)
+{
+	//TODO what is void *data?
+    //TODO test
+	int ret;
 
-MODULE_AUTHOR("Anson Huang <Anson.Huang@nxp.com>");
-MODULE_DESCRIPTION("Thermal driver for NXP i.MX SoCs with system controller");
-MODULE_LICENSE("GPL v2");
+	dt_device_set_used_by(np, DOMID_XEN);
+
+	ret = imx_sc_thermal_probe(np);
+	if (ret) {
+		printk(XENLOG_ERR "%s: failed to init i.MX8 SC THS (%d)\n",
+				dev_name(&np->dev), ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+
+DT_DEVICE_START(imx_sc_thermal, "i.MX8 SC THS", DEVICE_THS)
+	.dt_match = imx_sc_thermal_table,
+	.init = imx_sc_thermal_init,
+DT_DEVICE_END
