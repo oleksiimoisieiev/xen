@@ -286,8 +286,6 @@ static void imx_sc_thermal_work(void *data)
 	struct imx_sc_sensor *sensor = data;
 
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-	for ( ; ; )
-	{
     printk(XENLOG_INFO "<<< %s %d sens = %d\n", __func__, __LINE__, sensor->resource_id);
 		ret = imx_sc_thermal_get_temp(sensor, &temp);
 		if (ret)
@@ -295,7 +293,6 @@ static void imx_sc_thermal_work(void *data)
 			printk(XENLOG_WARNING "Unable to read temp from sensor: %d",
 					sensor->resource_id);
 			//TODO make protection for the case when sensor no longer available
-			continue;
 		}
 
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
@@ -304,8 +301,6 @@ static void imx_sc_thermal_work(void *data)
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 		udelay(delay * 1000);
 		tasklet_schedule(&sensor->work);
-
-	}
 }
 
 static int __init imx_sc_thermal_probe(struct dt_device_node *np)
