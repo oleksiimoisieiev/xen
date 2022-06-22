@@ -241,6 +241,7 @@ static void imx_sc_thermal_work(void *data)
 			printk(XENLOG_WARNING "Unable to read temp from sensor: %d",
 					sensor->resource_id);
 			//TODO make protection for the case when sensor no longer available
+			return;
 		}
 
 		delay = do_throttling(sensor, temp);
