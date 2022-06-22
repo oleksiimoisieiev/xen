@@ -54,6 +54,7 @@
 #include <linux/spinlock.h>
 #endif
 
+#include <xen/mm.h>
 #include <xen/device_tree.h>
 #include <xen/err.h>
 #include <xen/init.h>
@@ -69,8 +70,6 @@
  * TODO:
  * 1. Add releasing resources since devm.
  */
-
-#include <xen/mm.h>
 
 #define CMD_ID_SHIFT		0
 #define CMD_ID_MASK		0x7f
