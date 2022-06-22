@@ -20,7 +20,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; If not, see <http://www.gnu.org/licenses/>.
  */
+#include "asm-arm/device.h"
+#include "xen/config.h"
 #include <asm/sci.h>
+#include <asm/smccc.h>
 #include <xen/types.h>
 #include <xen/delay.h>
 #include <xen/cpumask.h>
@@ -32,6 +35,13 @@
 #include <asm/percpu.h>
 #include <xen/pmstat.h>
 #include <xen/keyhandler.h>
+
+#define IMX_SIP_CPUFREQ         0xC2000001
+
+//TODO implement
+//TODO move to common part
+//bool cpufreq_debug = false;
+bool cpufreq_debug = true;
 
 /*
  * To protect changing frequency driven by both CPUFreq governor and
@@ -45,17 +55,18 @@ static DEFINE_SPINLOCK(freq_lock);
  */
 static bool turbo_prohibited = false;
 
+#define OPP_MAX 8
 
 //TODO refactor and move to common place?
 struct freq_opp {
 	u32 freq;
 	u32 m_volt;
     u32 clock_latency;
-} __packed;
+};
 
 struct dvfs_info {
 	unsigned int count;
-	struct freq_opp *opps;
+	struct freq_opp opps[OPP_MAX];
 };
 
 //TODO move to common place? 
@@ -75,6 +86,7 @@ static struct cpufreq_data *cpufreq_driver_data[NR_CPUS];
 //TODO move to common part?
 static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
 {
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !cpumask_test_cpu(cpuid, &cpu_online_map) )
         return -EINVAL;
 
@@ -92,19 +104,74 @@ static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
     return 0;
 }
 
-//TODO implement
 //TODO test
-static int dvfs_get_idx(int resource_id)
+static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 {
+    int ret, i;
+    uint32_t rate;
+    printk(XENLOG_INFO "<<< %s %d get clock for rsrc: %d\n", __func__, __LINE__,
+            data->resource);
+
+    ret = sc_pm_get_clock_rate(mu_ipcHandle, data->resource,
+        SC_PM_CLK_CPU, &rate);
+
+    if (ret) {
+        printk(XENLOG_ERR "read cpu clock %d failed, ret %d\n",
+                data->resource, ret);
+        return ret;
+    }
+
+    printk(XENLOG_INFO "<<< %s %d clock ratw %d\n", __func__, __LINE__,
+            rate);
+
+    for (i=0; i< data->info->count; i++)
+        if (data->info->opps[i].freq == rate)
+        {
+            *idx = i;
+            return 0;
+        }
+
+    return -ENODATA;
+}
+
+//TODO test
+static int dvfs_set(int resource_id, unsigned int freq)
+{
+    struct arm_smccc_res res;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+//TODO implement
+    arm_smccc_smc(IMX_SIP_CPUFREQ, resource_id, freq, &res);
+
+    if (res.a0)
+        return -EINVAL;
+
     return 0;
+}
+
+static int imx_cpufreq_set(unsigned int cpu, unsigned int freq)
+{
+    struct cpufreq_data *data;
+    struct cpufreq_policy *policy;
+
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    if ( cpu >= nr_cpu_ids || !cpu_online(cpu) )
+        return 0;
+
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    policy = per_cpu(cpufreq_cpu_policy, cpu);
+    if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
+         !data->info )
+        return 0;
+
+    return dvfs_set(data->resource, freq);
 }
 
 static unsigned int imx_cpufreq_get(unsigned int cpu)
 {
     struct cpufreq_data *data;
     struct cpufreq_policy *policy;
-    const struct freq_opp *opp;
-    int idx;
+    int ret, idx;
+
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( cpu >= nr_cpu_ids || !cpu_online(cpu) )
@@ -115,15 +182,13 @@ static unsigned int imx_cpufreq_get(unsigned int cpu)
          !data->info )
         return 0;
 
-
-    idx = dvfs_get_idx(data->resource);
-    if ( idx < 0 )
+    ret = dvfs_get_idx(data, &idx);
+    if ( ret )
         return 0;
 
-    opp = data->info->opps + idx;
-
+    printk(XENLOG_INFO "<<< %s %d got idx = %d\n", __func__, __LINE__, idx);
     /* Convert Hz -> kHz */
-    return opp->freq / 1000;
+    return data->info->opps[idx].freq / 1000;
 }
 
 static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
@@ -139,6 +204,7 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     unsigned int j;
     int result;
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( unlikely(!data || !data->perf || !data->freq_table || !data->info) )
         return -ENODEV;
 
@@ -169,7 +235,7 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     freqs.old = perf->states[perf->state].core_frequency * 1000;
     freqs.new = data->freq_table[next_state].frequency;
 
-    result = scpi_cpufreq_set(policy->cpu, freqs.new);
+    result = imx_cpufreq_set(policy->cpu, freqs.new);
     if ( result < 0 )
         return result;
 
@@ -204,8 +270,21 @@ static int imx_cpufreq_target(struct cpufreq_policy *policy,
 
 static int imx_cpufreq_verify(struct cpufreq_policy *policy)
 {
+    struct cpufreq_data *data;
+    struct processor_performance *perf;
+
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-    return 0;
+    if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
+         !processor_pminfo[policy->cpu] )
+        return -EINVAL;
+
+    perf = &processor_pminfo[policy->cpu]->perf;
+
+    /* Convert MHz -> kHz */
+    cpufreq_verify_within_limits(policy, 0,
+        perf->states[perf->platform_limit].core_frequency * 1000);
+
+    return cpufreq_frequency_table_verify(policy, data->freq_table);
 }
 
 // TODO get_cpu_device to common place
@@ -213,15 +292,14 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
 
 struct device *get_cpu_device(unsigned int cpu)
 {
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( cpu < nr_cpu_ids && cpu_possible(cpu) )
         return dt_to_dev(cpu_dt_nodes[cpu]);
     else
         return NULL;
 }
 
-// TODO move to common part.
-// TODO implement it
-// TODO test ir
+/* TODO boost is not supported in current implementation */
 /* TODO Add a way to recognize Boost frequencies */
 static inline bool is_turbo_freq(int index, int count)
 {
@@ -249,12 +327,52 @@ static int device_domain_resource(struct device *cpu_dev)
 	return clock_specs.args_count ? clock_specs.args[0] : 0;
 }
 
-//TODO implement it
 //TODO test it
 static int dvfs_get_info(struct device *cpu, struct dvfs_info *info)
 {
+    struct dt_device_node *opp_np, *child;
+    int ret;
+    if (!info)
+        return -EINVAL;
+
+    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
+            cpu->of_node->name);
+
+    opp_np = dt_parse_phandle(cpu->of_node, "operating-points-v2", 0);
+    if (!opp_np)
+    {
+        printk (XENLOG_ERR "Unable to find opp node for cpu: %s\n",
+                cpu->of_node->name);
+        return -ENODATA;
+    }
+
+    printk(XENLOG_INFO "<<< %s %d opp_node name = %s\n", __func__, __LINE__,
+            cpu->of_node->name);
+
+    dt_for_each_child_node(opp_np, child)
+    {
+        ret = dt_property_read_u32(child, "opp-hz",
+                &info->opps[info->count].freq);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: opp-hz is not set\n", child->name);
+
+        ret = dt_property_read_u32(child, "opp-microvolt",
+                &info->opps[info->count].m_volt);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: opp-microvolt is not set\n", child->name);
+
+        ret = dt_property_read_u32(child, "clock-latency-ns",
+                &info->opps[info->count].clock_latency);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: clock-latency-ns is not set\n",
+                    child->name);
+
+        info->count++;
+    }
+
     return 0;
 }
+
 
 static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
@@ -268,6 +386,7 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
     struct device *cpu_dev;
     struct cpufreq_data *data;
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     //TODO test
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     cpu_dev = get_cpu_device(policy->cpu);
@@ -410,6 +529,15 @@ err_unreg:
 static int imx_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 {
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    struct cpufreq_data *data = cpufreq_driver_data[policy->cpu];
+
+    if ( data )
+    {
+        xfree(data->freq_table);
+        xfree(data);
+        cpufreq_driver_data[policy->cpu] = NULL;
+    }
+
     return 0;
 }
 
@@ -423,6 +551,47 @@ static struct cpufreq_driver imx_cpufreq_driver = {
     .exit   = imx_cpufreq_cpu_exit,
     .update = imx_cpufreq_update,
 };
+
+//TODO move it to common part? 
+int imx_cpufreq_throttle(bool enable)
+{
+    struct cpufreq_policy *policy;
+    int result = 0;
+
+    policy = per_cpu(cpufreq_cpu_policy, target_cpu);
+    if ( !policy )
+       return 0;
+
+    if ( !enable )
+    {
+        /* Just allow to set any frequencies... */
+        turbo_prohibited = false;
+    }
+    else
+    {
+        spin_lock(&freq_lock);
+        /* Check if we are running on turbo frequency */
+        if ( policy->cur > policy->cpuinfo.second_max_freq )
+        {
+            /* Set max non-turbo frequency */
+            result = imx_cpufreq_set(policy->cpu,
+                                      policy->cpuinfo.second_max_freq);
+            if ( result < 0 )
+            {
+                spin_unlock(&freq_lock);
+                return result;
+            }
+        }
+        /* Signal that turbo frequencies are not allowed to be set */
+        turbo_prohibited = true;
+        spin_unlock(&freq_lock);
+    }
+
+    printk(XENLOG_INFO "cpu%u: %s CPU throttling\n", policy->cpu,
+           turbo_prohibited ? "Enable" : "Disable");
+
+    return 0;
+}
 
     //TODO move to common part?
 //TODO test
@@ -447,9 +616,6 @@ static int thermal_init(void)
 
 	return (num_ths > 0) ? 0 : -ENODEV;
 }
-
-//TODO move to common part
-bool cpufreq_debug = false;
 
 //TODO move to common part
 void cpufreq_debug_toggle(unsigned char key)
@@ -490,7 +656,7 @@ static int __init cpufreq_imx_driver_init(void)
     register_keyhandler('C', cpufreq_debug_toggle,
                         "enable debug for CPUFreq", 0);
 
-    printk("initialized i.MX8 CPUFreq\n");
+    printk("initialized i.MX8 CPUFreq driver\n");
     return 0;
 }
 __initcall(cpufreq_imx_driver_init);
