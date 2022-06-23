@@ -113,7 +113,6 @@ static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
 
 struct device *get_cpu_device(unsigned int cpu)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( cpu < nr_cpu_ids && cpu_possible(cpu) )
         return dt_to_dev(cpu_dt_nodes[cpu]);
     else
@@ -240,7 +239,8 @@ static int dvfs_set(int resource_id, unsigned int freq)
     printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
             resource_id, freq);
 
-    arm_smccc_smc(IMX_SIP_CPUFREQ, IMX_SIP_SET_CPUFREQ, resource_id, freq, &res);
+    arm_smccc_smc(IMX_SIP_CPUFREQ, IMX_SIP_SET_CPUFREQ, resource_id,
+            freq * 1000 /* kHz to Hz */, &res);
     if (res.a0)
         return -EINVAL;
 
@@ -252,11 +252,9 @@ static int imx_cpufreq_set(unsigned int cpu, unsigned int freq)
     struct cpufreq_data *data;
     struct cpufreq_policy *policy;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( cpu >= nr_cpu_ids || !cpu_online(cpu) )
         return 0;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     policy = per_cpu(cpufreq_cpu_policy, cpu);
     if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
          !dvfs_get_info(data->cpu) )
@@ -353,6 +351,7 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     perf->state = next_perf_state;
     policy->cur = freqs.new;
 
+    printk(XENLOG_INFO "<<< %s %di result = %d\n", __func__, __LINE__, result);
     return result;
 }
 
@@ -360,7 +359,6 @@ static int imx_cpufreq_target(struct cpufreq_policy *policy,
                                unsigned int target_freq, unsigned int relation)
 {
     int result;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     spin_lock(&freq_lock);
     result = imx_cpufreq_target_unlocked(policy, target_freq, relation);
@@ -434,7 +432,6 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
 
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     //TODO test
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     cpu_dev = get_cpu_device(policy->cpu);
     if ( !cpu_dev )
         return -ENODEV;
