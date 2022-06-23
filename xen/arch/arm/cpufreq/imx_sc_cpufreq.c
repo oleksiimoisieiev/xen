@@ -351,7 +351,7 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     perf->state = next_perf_state;
     policy->cur = freqs.new;
 
-    printk(XENLOG_INFO "<<< %s %di result = %d\n", __func__, __LINE__, result);
+    printk(XENLOG_INFO "<<< %s %d result = %d\n", __func__, __LINE__, result);
     return result;
 }
 
