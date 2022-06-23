@@ -81,9 +81,6 @@ struct cpufreq_data
     int resource; /* resource id this CPU belongs to */
 
 };
-//TODO do I need this
-/* CPU which throttling affects */
-static unsigned int target_cpu = 0;
 
 static struct cpufreq_data *cpufreq_driver_data[NR_CPUS];
 static struct dvfs_info *cpufreq_dvfs_info[NR_CPUS];
@@ -220,7 +217,7 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
         return PTR_ERR(info);
     }
 
-    printk(XENLOG_INFO "<<< %s %d clock ratw %d\n", __func__, __LINE__,
+    printk(XENLOG_INFO "<<< %s %d clock rate %d\n", __func__, __LINE__,
             rate);
 
     for (i=0; i< info->count; i++)
@@ -232,13 +229,26 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 
     return -ENODATA;
 }
-
+/*
+static int get_cpu_by_resource(int resource_id)
+{
+    int i;
+    for ( i = 0; i < NR_CPUS; i++ )
+    {
+        if ( cpufreq_driver_data[i]->resource == resource_id )
+        {
+            return cpufreq_driver_data[i]->cpu;
+        }
+    }
+    return -EINVAL;
+}
+*/
 static int dvfs_set(int resource_id, unsigned int freq)
 {
     struct arm_smccc_res res;
-//    printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
- //           resource_id, freq);
-
+    /*printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
+           resource_id, freq);
+*/
     arm_smccc_smc(IMX_SIP_CPUFREQ, IMX_SIP_SET_CPUFREQ, resource_id,
             freq * 1000 /* kHz to Hz */, &res);
     if (res.a0)
@@ -351,7 +361,6 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     perf->state = next_perf_state;
     policy->cur = freqs.new;
 
-    printk(XENLOG_INFO "<<< %s %d result = %d\n", __func__, __LINE__, result);
     return result;
 }
 
@@ -365,9 +374,6 @@ static int imx_cpufreq_target(struct cpufreq_policy *policy,
     spin_unlock(&freq_lock);
 
     return result;
-
-
-    return 0;
 }
 
 static int imx_cpufreq_verify(struct cpufreq_policy *policy)
@@ -545,11 +551,6 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
      */
     policy->resume = 1;
 
-    //TODO do we need to set target cpu??
-    /* TODO: We assume that A72 cluster belongs to power domain 0 */
-    if ( data->resource == 5/*IMX_SC_R_A72*/ )
-        target_cpu = policy->cpu;
-
     return result;
 
 err_freqfree:
@@ -585,16 +586,19 @@ static struct cpufreq_driver imx_cpufreq_driver = {
     .update = imx_cpufreq_update,
 };
 
-//TODO move it to common part? 
-int imx_cpufreq_throttle(bool enable)
+int imx_cpufreq_throttle(bool enable, int cpu)
 {
     struct cpufreq_policy *policy;
     int result = 0;
 
-    policy = per_cpu(cpufreq_cpu_policy, target_cpu);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+
+    policy = per_cpu(cpufreq_cpu_policy, cpu);
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !policy )
        return 0;
 
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !enable )
     {
         /* Just allow to set any frequencies... */
@@ -603,18 +607,23 @@ int imx_cpufreq_throttle(bool enable)
     else
     {
         spin_lock(&freq_lock);
+        printk(XENLOG_INFO "<<< %s %d policy->cur = %d second = %d\n", __func__, __LINE__,
+                policy->cur, policy->cpuinfo.min_freq);
         /* Check if we are running on turbo frequency */
-        if ( policy->cur > policy->cpuinfo.second_max_freq )
+        if ( policy->cur > policy->cpuinfo.min_freq )
         {
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             /* Set max non-turbo frequency */
             result = imx_cpufreq_set(policy->cpu,
-                                      policy->cpuinfo.second_max_freq);
+                                      policy->cpuinfo.min_freq);
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             if ( result < 0 )
             {
                 spin_unlock(&freq_lock);
                 return result;
             }
         }
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         /* Signal that turbo frequencies are not allowed to be set */
         turbo_prohibited = true;
         spin_unlock(&freq_lock);
