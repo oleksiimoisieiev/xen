@@ -42,8 +42,7 @@
 #include "xen/config.h"
 #include "xen/lib.h"
 
-static bool throttle_enabled = false;
-extern int imx_cpufreq_throttle(bool enable);
+extern int imx_cpufreq_throttle(bool enable, int cpu);
 
 //TODO move to common place
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
@@ -63,6 +62,8 @@ struct imx_sc_temp {
 
 struct imx_sc_sensor {
 	uint32_t resource_id;
+	int cluster_cpu;
+	bool throttle_enabled;
 	unsigned int polling_delay;
 	unsigned int polling_delay_passive;
 	struct imx_sc_temp temp_passive;
@@ -101,7 +102,7 @@ static int imx_sc_thermal_get_temp(void *data, int *temp)
 
 	*temp = GET_TEMP(celsius, tenths);
 
-    printk(XENLOG_INFO "<<< %s %d temp = %d\n", __func__, __LINE__, *temp);
+    printk(XENLOG_INFO "<<< %s %d rsrc=%d temp = %d\n", __func__, __LINE__,sensor->resource_id, *temp);
 
 	return 0;
 }
@@ -109,14 +110,15 @@ static int imx_sc_thermal_get_temp(void *data, int *temp)
 #define CPU_THERMAL0 "cpu-thermal0"
 #define CPU_THERMAL1 "cpu-thermal1"
 
-static bool __init imx_dt_node_is_cpu(struct dt_device_node *node)
+static int __init get_cpu_from_dt_node(struct dt_device_node *node)
 {
-	//TODO test
-	if ((strcmp(node->name, CPU_THERMAL0) == 0) ||
-		(strcmp(node->name, CPU_THERMAL1) == 0))
-		return true;
+	if (strcmp(node->name, CPU_THERMAL0) == 0)
+		return 0;
 
-	return false;
+	if (strcmp(node->name, CPU_THERMAL1) == 0)
+		return 4;
+
+	return -ENOENT;
 }
 
 static int __init imx_dt_get_sensor_id(struct dt_device_node *node, uint32_t *id)
@@ -184,6 +186,7 @@ static int __init imx_dt_get_trips(struct dt_device_node *node,
 static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 {
 	unsigned long delay = sensor->polling_delay;
+
 	if ((sensor->temp_critical.temp) &&
 		(temp >= sensor->temp_critical.temp))
 	{
@@ -200,23 +203,23 @@ static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 		if (temp > sensor->temp_passive.temp)
 		{
 			delay = sensor->polling_delay_passive;
-			if (throttle_enabled)
+			if (sensor->throttle_enabled)
 				goto out;
 
-			if (imx_cpufreq_throttle(true)) {
+			if (imx_cpufreq_throttle(true, sensor->cluster_cpu)) {
 				printk("Failed to enable CPU throttling\n");
 				goto out;
 			}
-			throttle_enabled = true;
+			sensor->throttle_enabled = true;
 		}
 		else if (temp < sensor->temp_passive.temp -
 				sensor->temp_passive.hyst)
 		{
-			if (!throttle_enabled)
+			if (!sensor->throttle_enabled)
 				goto out;
 
-			imx_cpufreq_throttle(false);
-			throttle_enabled = false;
+			imx_cpufreq_throttle(false, sensor->resource_id);
+			sensor->throttle_enabled = false;
 		}
 	}
 
@@ -231,18 +234,18 @@ static void imx_sc_thermal_work(void *data)
 	int temp = 0;
 	struct imx_sc_sensor *sensor = data;
 
-		ret = imx_sc_thermal_get_temp(sensor, &temp);
-		if (ret)
-		{
-			printk(XENLOG_WARNING "Unable to read temp from sensor: %d",
-					sensor->resource_id);
-			//TODO make protection for the case when sensor no longer available
-			return;
-		}
+	ret = imx_sc_thermal_get_temp(sensor, &temp);
+	if (ret)
+	{
+		printk(XENLOG_WARNING "Unable to read temp from sensor: %d",
+				sensor->resource_id);
+		//TODO make protection for the case when sensor no longer available
+		return;
+	}
 
-		delay = do_throttling(sensor, temp);
+	delay = do_throttling(sensor, temp);
 
-		set_timer(&sensor->timer, NOW() + MILLISECS(delay));
+	set_timer(&sensor->timer, NOW() + MILLISECS(delay));
 }
 
 static int __init imx_sc_thermal_probe(struct dt_device_node *np)
@@ -250,7 +253,7 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 	struct dt_device_node *child;
 	struct imx_sc_sensor *sensor;
 	int index = 0;
-	//int temp;
+	int cpu;
 	int ret;
 
 	if (thermal_priv)
@@ -269,8 +272,10 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 		return -ENODEV;
 
 	dt_for_each_child_node(np, child) {
-		if (!imx_dt_node_is_cpu(child))
+		cpu = get_cpu_from_dt_node(child);
+		if ( cpu < 0 )
 			continue;
+
 
 		if (index >= MAX_SENSORS)
 			break;
@@ -304,9 +309,12 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 			break;
 		}
 
-		init_timer(&sensor->timer, imx_sc_thermal_work, (void*)sensor,0);
+        printk(XENLOG_INFO "<<< %s %d sens res_id= %d\n", __func__, __LINE__,
+                sensor->resource_id);
+		sensor->cluster_cpu = cpu;
+		sensor->throttle_enabled = false;
+		init_timer(&sensor->timer, imx_sc_thermal_work, (void *)sensor, cpu);
 		set_timer(&sensor->timer, NOW());
-
 
 		thermal_priv->sensors[index++] = sensor;
 	}
