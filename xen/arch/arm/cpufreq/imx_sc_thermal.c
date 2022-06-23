@@ -26,7 +26,6 @@
 
 #include <asm/sci.h>
 #include <xen/device_tree.h>
-#include <xen/tasklet.h>
 #include <xen/delay.h>
 #include <xen/err.h>
 #include <xen/vmap.h>
@@ -36,13 +35,12 @@
 #include <xen/mm.h>
 #include <asm/device.h>
 #include <asm/io.h>
+#include <xen/timer.h>
 
 #include "../platforms/scfw_export_hyper/svc/misc/misc_api.h"
 #include "asm-arm/delay.h"
 #include "xen/config.h"
-
-//TODO do I need some include ?
-extern bool cpufreq_debug;
+#include "xen/lib.h"
 
 static bool throttle_enabled = false;
 //TODO implement
@@ -59,7 +57,7 @@ static bool throttle_enabled = false;
 #define PASSIVE "passive"
 #define CRITICAL "critical"
 
-#define MAX_SENSORS 2
+#define MAX_SENSORS 16
 
 struct imx_sc_temp {
 	int temp;
@@ -72,7 +70,7 @@ struct imx_sc_sensor {
 	unsigned int polling_delay_passive;
 	struct imx_sc_temp temp_passive;
 	struct imx_sc_temp temp_critical;
-	struct tasklet work;
+	struct timer timer;
 };
 
 struct imx_sc_thermal_priv {
@@ -86,8 +84,8 @@ static struct imx_sc_thermal_priv *thermal_priv;
 static int imx_sc_thermal_get_temp(void *data, int *temp)
 {
 	int ret;
-	int16_t celsius;
-	int8_t tenths;
+	int16_t celsius = 0;
+	int8_t tenths = 0;
 	struct imx_sc_sensor *sensor = data;
 
 	ret = sc_misc_get_temp(mu_ipcHandle, sensor->resource_id, SC_MISC_TEMP,
@@ -108,45 +106,6 @@ static int imx_sc_thermal_get_temp(void *data, int *temp)
 
 	return 0;
 }
-
-/*
-static int imx_sc_thermal_set_alarm(struct imx_sc_sensor *sensor)
-{
-	unsigned long flags;
-	int ret;
-	spin_lock_irqsave(&thermal_priv->lock, flags);
-	//TODO test it
-
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-	if (sensor->temp_critical.temp) {
-		ret = sc_misc_set_temp(mu_ipcHandle, sensor->resource_id,
-				SC_MISC_TEMP_HIGH, CELSIUS(sensor->temp_critical.temp),
-				TENTH(sensor->temp_critical.temp));
-		if (ret) {
-			printk(XENLOG_ERR "Error setting HIGH temp alarm, ret = %d \n", ret);
-			return ret;
-		}
-	}
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-	//TODO test crit = 0
-	//TODO test passive =0
-
-	if (sensor->temp_passive.temp) {
-		ret = sc_misc_set_temp(mu_ipcHandle, sensor->resource_id,
-				SC_MISC_TEMP_LOW, CELSIUS(sensor->temp_passive.temp),
-				TENTH(sensor->temp_passive.temp));
-		if (ret) {
-			printk(XENLOG_ERR "Error setting HIGH temp alarm, ret = %d \n", ret);
-			return ret;
-		}
-	}
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
-	spin_unlock_irqrestore(&thermal_priv->lock, flags);
-
-	return 0;
-}
-*/
 
 #define CPU_THERMAL0 "cpu-thermal0"
 #define CPU_THERMAL1 "cpu-thermal1"
@@ -174,7 +133,6 @@ static int __init imx_dt_get_sensor_id(struct dt_device_node *node, uint32_t *id
 			0,
 			&sensor_specs);
 
-	printk(XENLOG_INFO "<<< %s %d: args_count = %d\n", __func__, __LINE__, sensor_specs.args_count);
 	if (sensor_specs.args_count > 1) {
 		printk(XENLOG_WARNING "%s: too many cells in sensor specifier %d\n",
 				node->name, sensor_specs.args_count);
@@ -198,7 +156,6 @@ static int __init imx_dt_get_trips(struct dt_device_node *node,
 		return -ENODEV;
 
 	dt_for_each_child_node(np, child) {
-		printk(XENLOG_INFO "<<< %s %d node: %s\n", __func__, __LINE__, child->name);
 		ret = dt_property_read_string(child, "type", &type);
 		if (ret)
 			return -ENOENT;
@@ -210,10 +167,6 @@ static int __init imx_dt_get_trips(struct dt_device_node *node,
 		ret = dt_property_read_u32(child, "hysteresis", &hyst);
 		if (!ret)
 			return -ENOENT;
-
-
-		printk(XENLOG_INFO "<<< %s %d type = %s temperature = %d\n",
-				__func__, __LINE__, type, temp);
 
 		if (strcmp(type, PASSIVE) == 0)
 		{
@@ -234,25 +187,22 @@ static int __init imx_dt_get_trips(struct dt_device_node *node,
 static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 {
 	unsigned long delay = sensor->polling_delay;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 	if ((sensor->temp_critical.temp) &&
 		(temp >= sensor->temp_critical.temp))
 	{
-		printk("Reached critical temperature (%d C): rebooting machine\n",
+		printk(XENLOG_WARNING "Reached critical temperature (%d C): rebooting machine\n",
 			temp / 1000);
 
-		machine_restart(0);
+		//machine_restart(0);
 	}
 	else
 	{
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 		if (!sensor->temp_passive.temp)
 			goto out;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
-		delay = sensor->polling_delay_passive;
 		if (temp > sensor->temp_passive.temp)
 		{
+			delay = sensor->polling_delay_passive;
 			if (throttle_enabled)
 				goto out;
 
@@ -282,11 +232,9 @@ static void imx_sc_thermal_work(void *data)
 {
 	int ret;
 	unsigned long delay;
-	int temp;
+	int temp = 0;
 	struct imx_sc_sensor *sensor = data;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-    printk(XENLOG_INFO "<<< %s %d sens = %d\n", __func__, __LINE__, sensor->resource_id);
 		ret = imx_sc_thermal_get_temp(sensor, &temp);
 		if (ret)
 		{
@@ -295,12 +243,9 @@ static void imx_sc_thermal_work(void *data)
 			//TODO make protection for the case when sensor no longer available
 		}
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 		delay = do_throttling(sensor, temp);
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-		udelay(delay * 1000);
-		tasklet_schedule(&sensor->work);
+		set_timer(&sensor->timer, NOW() + MILLISECS(delay));
 }
 
 static int __init imx_sc_thermal_probe(struct dt_device_node *np)
@@ -308,10 +253,9 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 	struct dt_device_node *child;
 	struct imx_sc_sensor *sensor;
 	int index = 0;
-	int temp;
+	//int temp;
 	int ret;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 	if (thermal_priv)
 		return -EEXIST;
 
@@ -331,7 +275,9 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 		if (!imx_dt_node_is_cpu(child))
 			continue;
 
-		printk(XENLOG_INFO "<<< %s %d child %s\n",__func__, __LINE__, child->name);
+		if (index >= MAX_SENSORS)
+			break;
+
 		sensor = xzalloc(struct imx_sc_sensor);
 		if (!sensor) {
 			goto err_free;
@@ -341,7 +287,7 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 		if (!ret)
 			return -ENOENT;
 
-		ret = dt_property_read_u32(child, "polling-delay", &sensor->polling_delay_passive);
+		ret = dt_property_read_u32(child, "polling-delay-passive", &sensor->polling_delay_passive);
 		if (!ret)
 			return -ENOENT;
 
@@ -361,27 +307,11 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 			break;
 		}
 
-		printk(XENLOG_INFO "<<< %s %d sens id = %d crit = %d, passive = %d\n",__func__, __LINE__,
-				sensor->resource_id,
-				sensor->temp_critical.temp, sensor->temp_passive.temp);
-/*		ret = imx_sc_thermal_set_alarm(sensor);
-		if (ret) {
-			printk(XENLOG_ERR "Unable to set alarm for sensor %d\n",
-					sensor->resource_id);
-			break;
-		}
-*/
+		init_timer(&sensor->timer, imx_sc_thermal_work, (void*)sensor,0);
+		set_timer(&sensor->timer, NOW());
 
-		tasklet_init(&sensor->work, imx_sc_thermal_work, (void *)sensor);
-
-		if (index >= MAX_SENSORS)
-			break;
 
 		thermal_priv->sensors[index++] = sensor;
-		//TODO remove it
-		imx_sc_thermal_get_temp(sensor, &temp);
-		printk(XENLOG_INFO "sensor rcid = %d temp %d\n", sensor->resource_id,
-				temp);
 	}
 
 	return 0;
@@ -401,8 +331,6 @@ static const struct dt_device_match imx_sc_thermal_table[] __initconst = {
 static int __init imx_sc_thermal_init(struct dt_device_node *np,
 		const void *data)
 {
-	//TODO what is void *data?
-    //TODO test
 	int ret;
 
 	dt_device_set_used_by(np, DOMID_XEN);
