@@ -49,12 +49,6 @@ bool cpufreq_debug = true;
  * CPU throttling work.
  */
 static DEFINE_SPINLOCK(freq_lock);
-//TODO do I need this
-/*
- * To signal that turbo frequencies are not allowed to be set
- * (CPU throttling is present).
- */
-static bool turbo_prohibited = false;
 
 #define OPP_MAX 8
 
@@ -76,6 +70,7 @@ struct cpufreq_data
     int cpu;
     struct processor_performance *perf;
     struct cpufreq_frequency_table *freq_table;
+    bool turbo_prohibited;
     //TODO do i need it here?
     //struct dvfs_info *info; /* DVFS capabilities of the CPU's power domain */
     int resource; /* resource id this CPU belongs to */
@@ -320,7 +315,8 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
                 IS_ERR(dvfs_get_info(data->cpu))) )
         return -ENODEV;
 
-    if ( policy->turbo == CPUFREQ_TURBO_DISABLED || turbo_prohibited )
+    if ( policy->turbo == CPUFREQ_TURBO_DISABLED ||
+            cpufreq_driver_data[policy->cpu]->turbo_prohibited)
         if ( target_freq > policy->cpuinfo.second_max_freq )
             target_freq = policy->cpuinfo.second_max_freq;
 
@@ -400,7 +396,15 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
 /* TODO Add a way to recognize Boost frequencies */
 static inline bool is_turbo_freq(int index, int count)
 {
-    return false;
+    /* ugly Boost frequencies recognition */
+    switch ( count )
+    {
+    /* A53 and A72 set 3 turbo frequencies and 1 low */
+    case 4:
+        return index <= 2 ? true : false;
+    default:
+        return false;
+    }
 }
 
 static int device_domain_resource(struct device *cpu_dev)
@@ -415,7 +419,6 @@ static int device_domain_resource(struct device *cpu_dev)
 			0,
 			&clock_specs);
 
-	printk(XENLOG_INFO "<<< %s %d: args_count = %d\n", __func__, __LINE__, clock_specs.args_count);
 	if (clock_specs.args_count > 2) {
 		printk(XENLOG_WARNING "%s: too many cells in clock specifier %d\n",
 				cpu_dev->of_node->name, clock_specs.args_count);
@@ -602,20 +605,20 @@ int imx_cpufreq_throttle(bool enable, int cpu)
     if ( !enable )
     {
         /* Just allow to set any frequencies... */
-        turbo_prohibited = false;
+        cpufreq_driver_data[policy->cpu]->turbo_prohibited = false;
     }
     else
     {
         spin_lock(&freq_lock);
         printk(XENLOG_INFO "<<< %s %d policy->cur = %d second = %d\n", __func__, __LINE__,
-                policy->cur, policy->cpuinfo.min_freq);
+                policy->cur, policy->cpuinfo.second_max_freq);
         /* Check if we are running on turbo frequency */
-        if ( policy->cur > policy->cpuinfo.min_freq )
+        if ( policy->cur > policy->cpuinfo.second_max_freq )
         {
         printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             /* Set max non-turbo frequency */
             result = imx_cpufreq_set(policy->cpu,
-                                      policy->cpuinfo.min_freq);
+                                      policy->cpuinfo.second_max_freq);
         printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             if ( result < 0 )
             {
@@ -625,12 +628,12 @@ int imx_cpufreq_throttle(bool enable, int cpu)
         }
         printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         /* Signal that turbo frequencies are not allowed to be set */
-        turbo_prohibited = true;
+        cpufreq_driver_data[policy->cpu]->turbo_prohibited = true;
         spin_unlock(&freq_lock);
     }
 
     printk(XENLOG_INFO "cpu%u: %s CPU throttling\n", policy->cpu,
-           turbo_prohibited ? "Enable" : "Disable");
+           cpufreq_driver_data[policy->cpu]->turbo_prohibited? "Enable" : "Disable");
 
     return 0;
 }
