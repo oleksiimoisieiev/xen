@@ -101,7 +101,7 @@ static int imx_sc_thermal_get_temp(void *data, int *temp)
 
 	*temp = GET_TEMP(celsius, tenths);
 
-    printk(XENLOG_INFO "<<< %s %d temp = %ld\n", __func__, __LINE__, temp);
+    printk(XENLOG_INFO "<<< %s %d temp = %d\n", __func__, __LINE__, *temp);
 
 	return 0;
 }
