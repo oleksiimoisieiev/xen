@@ -240,7 +240,7 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
         return result;
 
     if (cpufreq_debug)
-        printk("Switch CPU%u freq: %u kHz --> %u kHz\n", policy->cpu,
+        printk(XENLOG_ERR "Switch CPU%u freq: %u kHz --> %u kHz\n", policy->cpu,
                freqs.old, freqs.new);
 
     for_each_cpu( j, &online_policy_cpus )
@@ -287,7 +287,7 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
     return cpufreq_frequency_table_verify(policy, data->freq_table);
 }
 
-// TODO get_cpu_device to common place
+// TODO moveto common place all all cpufreq related functions
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
 
 struct device *get_cpu_device(unsigned int cpu)
@@ -601,6 +601,8 @@ int cpufreq_cpu_init(unsigned int cpuid)
     return cpufreq_add_cpu(cpuid);
 }
 
+//TODO move to common place
+
 //TODO move to common part
 static int thermal_init(void)
 {
@@ -621,7 +623,7 @@ static int thermal_init(void)
 void cpufreq_debug_toggle(unsigned char key)
 {
     cpufreq_debug = !cpufreq_debug;
-    printk("CPUFreq debug is %s\n", cpufreq_debug ? "enabled" : "disabled");
+    printk(XENLOG_ERR "CPUFreq debug is %s\n", cpufreq_debug ? "enabled" : "disabled");
 }
 
 //TODO implement me
@@ -630,6 +632,306 @@ static void cpufreq_imx_driver_deinit(void)
 {
 
 }
+
+static bool is_dvfs_capable(unsigned int cpu)
+{
+    static const struct dt_device_match dvfs_clock_match[] =
+    {
+        DT_MATCH_COMPATIBLE("fsl,scu-clk"),
+        DT_MATCH_COMPATIBLE("fsl,imx8qm-clk"),
+        { /* sentinel */ },
+    };
+    struct device *cpu_dev;
+    struct dt_phandle_args clock_spec;
+    struct dvfs_info info;
+    int ret;
+
+    cpu_dev = get_cpu_device(cpu);
+    if ( !cpu_dev )
+    {
+        printk(XENLOG_ERR "cpu%d: failed to get device\n", cpu);
+        return false;
+    }
+
+    /* First of all find a clock node this CPU is a consumer of */
+    ret = dt_parse_phandle_with_args(cpu_dev->of_node,
+                                     "clocks",
+                                     "#clock-cells",
+                                     0,
+                                     &clock_spec);
+    if ( ret )
+    {
+        printk(XENLOG_ERR "cpu%d: failed to get clock node\n", cpu);
+        return false;
+    }
+
+    /* Make sure it is an available DVFS clock node */
+    if ( !dt_match_node(dvfs_clock_match, clock_spec.np) ||
+         !dt_device_is_available(clock_spec.np) )
+    {
+        printk(XENLOG_ERR "cpu%d: clock node '%s' is either non-DVFS or non-available\n",
+               cpu, dev_name(&clock_spec.np->dev));
+        return false;
+    }
+
+    if ( clock_spec.args_count < 2 )
+    {
+        printk(XENLOG_ERR "format mismatch for cpu %d\n", cpu);
+    }
+
+    ret = dvfs_get_info(cpu_dev, &info);
+    if ( ret )
+    {
+        printk(XENLOG_ERR "cpu%d: failed to get DVFS info of imx id %u\n", cpu,
+                clock_spec.args[0]);
+        return false;
+    }
+
+    printk(XENLOG_DEBUG "cpu%d: is DVFS capable, belongs to pd%u\n",
+           cpu, clock_spec.args[0]);
+
+    return true;
+}
+
+static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
+{
+    struct device *cpu_dev = get_cpu_device(cpu), *tcpu_dev;
+    unsigned int tcpu;
+    int domain, tdomain;
+
+    BUG_ON(!cpu_dev);
+
+    domain = scpi_ops->device_domain_id(cpu_dev);
+    if ( domain < 0 )
+        return domain;
+
+    cpumask_clear(mask);
+    cpumask_set_cpu(cpu, mask);
+
+    for_each_online_cpu( tcpu )
+    {
+        if ( tcpu == cpu )
+            continue;
+
+        tcpu_dev = get_cpu_device(tcpu);
+        if ( !tcpu_dev )
+            continue;
+
+        tdomain = scpi_ops->device_domain_id(tcpu_dev);
+        if ( tdomain == domain )
+            cpumask_set_cpu(tcpu, mask);
+    }
+
+    return 0;
+}
+
+static int get_transition_latency(struct device *cpu_dev)
+{
+    return scpi_ops->get_transition_latency(cpu_dev);
+}
+
+static int init_cpufreq_table(unsigned int cpu,
+                              struct cpufreq_frequency_table **table)
+{
+    struct cpufreq_frequency_table *freq_table = NULL;
+    struct device *cpu_dev = get_cpu_device(cpu);
+    struct dvfs_info info;
+    struct freq_opp *opp;
+    int i, ret;
+
+    BUG_ON(!cpu_dev);
+
+    ret = dvfs_get_info(cpu_dev, &info);
+    if ( ret )
+        return ret;
+
+    if ( !info.count )
+        return -EIO;
+
+    freq_table = xzalloc_array(struct cpufreq_frequency_table, info.count + 1);
+    if ( !freq_table )
+        return -ENOMEM;
+
+    for ( opp = info.opps, i = 0; i < info.count; i++, opp++ )
+    {
+        freq_table[i].index = i;
+        /* Convert Hz -> kHz */
+        freq_table[i].frequency = opp->freq / 1000;
+    }
+
+    freq_table[i].index = i;
+    freq_table[i].frequency = CPUFREQ_TABLE_END;
+
+    *table = &freq_table[0];
+
+    return 0;
+}
+
+static void free_cpufreq_table(struct cpufreq_frequency_table **table)
+{
+    if ( !table )
+        return;
+
+    xfree(*table);
+    *table = NULL;
+}
+
+static int upload_cpufreq_data(cpumask_t *mask,
+                               struct cpufreq_frequency_table *table)
+{
+    struct xen_processor_performance *perf;
+    struct xen_processor_px *states;
+    uint32_t platform_limit = 0, state_count = 0;
+    unsigned int max_freq = 0, prev_freq = 0, cpu = cpumask_first(mask);
+    int i, latency, ret = 0;
+
+    perf = xzalloc(struct xen_processor_performance);
+    if ( !perf )
+        return -ENOMEM;
+
+    /* Check frequency table and find max frequency */
+    for ( i = 0; (table[i].frequency != CPUFREQ_TABLE_END); i++ )
+    {
+        unsigned int freq = table[i].frequency;
+
+        if ( freq == CPUFREQ_ENTRY_INVALID )
+            continue;
+
+        if ( table[i].index != state_count || freq <= prev_freq )
+        {
+            printk(XENLOG_ERR "cpu%d: frequency table format error\n", cpu);
+            ret = -EINVAL;
+            goto out;
+        }
+
+        prev_freq = freq;
+        state_count++;
+        if ( freq > max_freq )
+            max_freq = freq;
+    }
+
+    /*
+     * The frequency table we have is just a temporary place for storing
+     * provided by SCP DVFS info. Create performance states array.
+     */
+    if ( !state_count )
+    {
+        printk(XENLOG_ERR "cpu%d: no available performance states\n", cpu);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    states = xzalloc_array(struct xen_processor_px, state_count);
+    if ( !states )
+    {
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    set_xen_guest_handle(perf->states, states);
+    perf->state_count = state_count;
+
+    latency = get_transition_latency(get_cpu_device(cpu));
+
+    /* Performance states must start from higher values */
+    for ( i = 0; (table[i].frequency != CPUFREQ_TABLE_END); i++ )
+    {
+        unsigned int freq = table[i].frequency;
+        unsigned int index = state_count - 1 - table[i].index;
+
+        if ( freq == CPUFREQ_ENTRY_INVALID )
+            continue;
+
+        if ( freq == max_freq )
+            platform_limit = index;
+
+        /* Convert kHz -> MHz */
+        states[index].core_frequency = freq / 1000;
+        /* Convert ns -> us */
+        states[index].transition_latency = DIV_ROUND_UP(latency, 1000);
+    }
+
+    perf->flags = XEN_PX_PSD | XEN_PX_PSS | XEN_PX_PCT | XEN_PX_PPC |
+                  XEN_PX_DATA; /* all P-state data in a one-shot */
+    perf->platform_limit = platform_limit;
+    perf->shared_type = CPUFREQ_SHARED_TYPE_ANY;
+    perf->domain_info.domain = cpumask_first(mask);
+    perf->domain_info.num_processors = cpumask_weight(mask);
+
+    /* Iterate through all CPUs which are on the same boat */
+    for_each_cpu( cpu, mask )
+    {
+        ret = set_px_pminfo(cpu, perf);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "cpu%d: failed to set Px states (%d)\n", cpu, ret);
+            break;
+        }
+
+        printk(XENLOG_DEBUG "cpu%d: set Px states\n", cpu);
+    }
+
+    xfree(states);
+out:
+    xfree(perf);
+
+    return ret;
+}
+
+static int __init imx_cpufreq_postinit(void)
+{
+    struct cpufreq_frequency_table *freq_table = NULL;
+    cpumask_t processed_cpus, shared_cpus;
+    unsigned int cpu;
+    int ret = -ENODEV;
+
+    cpumask_clear(&processed_cpus);
+
+    for_each_online_cpu( cpu )
+    {
+        if ( cpumask_test_cpu(cpu, &processed_cpus) )
+            continue;
+
+        if ( !is_dvfs_capable(cpu) )
+        {
+            printk(XENLOG_DEBUG "cpu%d: isn't DVFS capable, skip it\n", cpu);
+            continue;
+        }
+
+        ret = get_sharing_cpus(cpu, &shared_cpus);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "cpu%d: failed to get sharing cpumask (%d)\n", cpu, ret);
+            return ret;
+        }
+
+        BUG_ON(cpumask_empty(&shared_cpus));
+        cpumask_or(&processed_cpus, &processed_cpus, &shared_cpus);
+
+        /* Create intermediate frequency table */
+        ret = init_cpufreq_table(cpu, &freq_table);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "cpu%d: failed to initialize frequency table (%d)\n",
+                   cpu, ret);
+            return ret;
+        }
+
+        ret = upload_cpufreq_data(&shared_cpus, freq_table);
+        /* Destroy intermediate frequency table */
+        free_cpufreq_table(&freq_table);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "cpu%d: failed to upload cpufreq data (%d)\n", cpu, ret);
+            return ret;
+        }
+
+        printk(XENLOG_DEBUG "cpu%d: uploaded cpufreq data\n", cpu);
+    }
+
+    return ret;
+}
+
 
 static int __init cpufreq_imx_driver_init(void)
 {
@@ -642,13 +944,19 @@ static int __init cpufreq_imx_driver_init(void)
     ret = thermal_init();
     if ( ret )
     {
-        printk("failed to initialize thermal (%d)\n", ret);
-        return ret;
+        printk(XENLOG_ERR "failed to initialize thermal (%d)\n", ret);
+        goto out;
     }
 
     ret = cpufreq_register_driver(&imx_cpufreq_driver);
-    if (ret)
+    if ( ret )
+        goto out;
+
+    ret = imx_cpufreq_postinit();
+out:
+    if ( ret )
     {
+        printk(XENLOG_ERR "failed to initialize i.MX8 CPUFreq driver (%d)\n", ret);
         cpufreq_imx_driver_deinit();
         return ret;
     }
@@ -656,8 +964,8 @@ static int __init cpufreq_imx_driver_init(void)
     register_keyhandler('C', cpufreq_debug_toggle,
                         "enable debug for CPUFreq", 0);
 
-    printk("initialized i.MX8 CPUFreq driver\n");
-    return 0;
+    printk(XENLOG_INFO "initialized i.MX8 CPUFreq driver\n");
+    return ret;
 }
 __initcall(cpufreq_imx_driver_init);
 
