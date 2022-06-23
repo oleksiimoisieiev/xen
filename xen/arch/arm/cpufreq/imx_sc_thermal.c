@@ -43,11 +43,8 @@
 #include "xen/lib.h"
 
 static bool throttle_enabled = false;
-//TODO implement
-//extern int imx_cpufreq_throttle(bool enable);
+extern int imx_cpufreq_throttle(bool enable);
 
-//static bool throttle_enabled = false;
-//
 //TODO move to common place
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
 #define CELSIUS(temp) temp >> 3
@@ -206,10 +203,10 @@ static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 			if (throttle_enabled)
 				goto out;
 
-			/*if (scpi_cpufreq_throttle(true)) {
+			if (imx_cpufreq_throttle(true)) {
 				printk("Failed to enable CPU throttling\n");
-				return;
-			}*/
+				goto out;
+			}
 			throttle_enabled = true;
 		}
 		else if (temp < sensor->temp_passive.temp -
@@ -218,10 +215,9 @@ static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 			if (!throttle_enabled)
 				goto out;
 
-			//scpi_cpufreq_throttle(false);
+			imx_cpufreq_throttle(false);
 			throttle_enabled = false;
 		}
-
 	}
 
 out:
