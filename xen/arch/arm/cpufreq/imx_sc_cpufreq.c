@@ -72,9 +72,11 @@ struct dvfs_info {
 //TODO move to common place? 
 struct cpufreq_data
 {
+    int cpu;
     struct processor_performance *perf;
     struct cpufreq_frequency_table *freq_table;
-    struct dvfs_info *info; /* DVFS capabilities of the CPU's power domain */
+    //TODO do i need it here?
+    //struct dvfs_info *info; /* DVFS capabilities of the CPU's power domain */
     int resource; /* resource id this CPU belongs to */
 
 };
@@ -83,6 +85,7 @@ struct cpufreq_data
 static unsigned int target_cpu = 0;
 
 static struct cpufreq_data *cpufreq_driver_data[NR_CPUS];
+static struct dvfs_info *cpufreq_dvfs_info[NR_CPUS];
 //TODO move to common part?
 static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
 {
@@ -104,11 +107,101 @@ static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
     return 0;
 }
 
+// TODO moveto common place all all cpufreq related functions
+#define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
+
+struct device *get_cpu_device(unsigned int cpu)
+{
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    if ( cpu < nr_cpu_ids && cpu_possible(cpu) )
+        return dt_to_dev(cpu_dt_nodes[cpu]);
+    else
+        return NULL;
+}
+
+//TODO test it
+static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
+{
+    struct dt_device_node *opp_np, *child;
+    struct dt_device_node *cpu_dt;
+    struct device *cpu_dev = get_cpu_device(cpu);
+    struct dvfs_info *info;
+    int ret;
+    u32 val;
+
+    //TODO free allocated info
+    if (cpufreq_dvfs_info[cpu])
+    {
+        return cpufreq_dvfs_info[cpu];
+    }
+
+    info = xzalloc(struct dvfs_info);
+    if ( !info )
+        return ERR_PTR(-ENOMEM);
+
+    cpu_dt = dev_to_dt(cpu_dev);
+
+    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
+            cpu_dt->full_name);
+
+    opp_np = dt_parse_phandle(cpu_dt, "operating-points-v2", 0);
+    if (!opp_np)
+    {
+        printk (XENLOG_ERR "Unable to find opp node for cpu: %s\n",
+                cpu_dt->full_name);
+        ret = -ENODATA;
+        goto err;
+    }
+
+    printk(XENLOG_INFO "<<< %s %d opp_node name = %s\n", __func__, __LINE__,
+        opp_np->full_name);
+
+    dt_for_each_child_node(opp_np, child)
+    {
+
+        printk(XENLOG_INFO "<<< %s %d child -> %s\n", __func__, __LINE__,
+            child->full_name);
+
+        ret = dt_property_read_u64(child, "opp-hz",
+                &info->opps[info->count].freq);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: opp-hz is not set\n", child->name);
+
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+        info->opps[info->count].m_volt = val;
+
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+        ret = dt_property_read_u32(child, "opp-microvolt", &val);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: opp-microvolt is not set\n", child->name);
+
+        info->opps[info->count].m_volt = val;
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+
+        ret = dt_property_read_u32(child, "clock-latency-ns", &val);
+        if (!ret)
+            printk(XENLOG_WARNING "%s: clock-latency-ns is not set\n",
+                    child->full_name);
+
+        info->opps[info->count].clock_latency = val;
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+
+        info->count++;
+    }
+
+    cpufreq_dvfs_info[cpu] = info;
+    return info;
+err:
+    xfree(info);
+    return ERR_PTR(ret);
+}
+
 //TODO test
 static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 {
     int ret, i;
     uint32_t rate;
+    const struct dvfs_info *info;
     printk(XENLOG_INFO "<<< %s %d get clock for rsrc: %d\n", __func__, __LINE__,
             data->resource);
 
@@ -121,11 +214,17 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
         return ret;
     }
 
+    info = dvfs_get_info(data->cpu);
+    if ( IS_ERR(info))
+    {
+        return PTR_ERR(info);
+    }
+
     printk(XENLOG_INFO "<<< %s %d clock ratw %d\n", __func__, __LINE__,
             rate);
 
-    for (i=0; i< data->info->count; i++)
-        if (data->info->opps[i].freq == rate)
+    for (i=0; i< info->count; i++)
+        if (info->opps[i].freq == rate)
         {
             *idx = i;
             return 0;
@@ -160,7 +259,7 @@ static int imx_cpufreq_set(unsigned int cpu, unsigned int freq)
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     policy = per_cpu(cpufreq_cpu_policy, cpu);
     if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
-         !data->info )
+         !dvfs_get_info(data->cpu) )
         return 0;
 
     return dvfs_set(data->resource, freq);
@@ -170,25 +269,30 @@ static unsigned int imx_cpufreq_get(unsigned int cpu)
 {
     struct cpufreq_data *data;
     struct cpufreq_policy *policy;
-    int ret, idx;
+    const struct dvfs_info *info;
+    int ret, idx = 0;
 
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( cpu >= nr_cpu_ids || !cpu_online(cpu) )
         return 0;
 
+    info = dvfs_get_info(cpu);
+    if ( IS_ERR(info) < 0)
+        return 0;
+
     policy = per_cpu(cpufreq_cpu_policy, cpu);
-    if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
-         !data->info )
+    if ( !policy || !(data = cpufreq_driver_data[policy->cpu]))
         return 0;
 
     ret = dvfs_get_idx(data, &idx);
     if ( ret )
         return 0;
 
+
     printk(XENLOG_INFO "<<< %s %d got idx = %d\n", __func__, __LINE__, idx);
     /* Convert Hz -> kHz */
-    return data->info->opps[idx].freq / 1000;
+    return info->opps[idx].freq / 1000;
 }
 
 static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
@@ -205,7 +309,8 @@ static int imx_cpufreq_target_unlocked(struct cpufreq_policy *policy,
     int result;
 
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-    if ( unlikely(!data || !data->perf || !data->freq_table || !data->info) )
+    if ( unlikely(!data || !data->perf || !data->freq_table ||
+                IS_ERR(dvfs_get_info(data->cpu))) )
         return -ENODEV;
 
     if ( policy->turbo == CPUFREQ_TURBO_DISABLED || turbo_prohibited )
@@ -287,17 +392,6 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
     return cpufreq_frequency_table_verify(policy, data->freq_table);
 }
 
-// TODO moveto common place all all cpufreq related functions
-#define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
-
-struct device *get_cpu_device(unsigned int cpu)
-{
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-    if ( cpu < nr_cpu_ids && cpu_possible(cpu) )
-        return dt_to_dev(cpu_dt_nodes[cpu]);
-    else
-        return NULL;
-}
 
 /* TODO boost is not supported in current implementation */
 /* TODO Add a way to recognize Boost frequencies */
@@ -326,66 +420,6 @@ static int device_domain_resource(struct device *cpu_dev)
 
 	return clock_specs.args_count ? clock_specs.args[0] : 0;
 }
-
-//TODO test it
-static int dvfs_get_info(struct device *cpu, struct dvfs_info *info)
-{
-    struct dt_device_node *opp_np, *child;
-    struct dt_device_node *cpu_dt;
-    int ret;
-    u32 val;
-    if (!info)
-        return -EINVAL;
-
-    cpu_dt = dev_to_dt(cpu);
-
-    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
-            cpu_dt->full_name);
-
-    opp_np = dt_parse_phandle(cpu_dt, "operating-points-v2", 0);
-    if (!opp_np)
-    {
-        printk (XENLOG_ERR "Unable to find opp node for cpu: %s\n",
-                cpu_dt->full_name);
-        return -ENODATA;
-    }
-
-    printk(XENLOG_INFO "<<< %s %d opp_node name = %s\n", __func__, __LINE__,
-        opp_np->full_name);
-
-    dt_for_each_child_node(opp_np, child)
-    {
-        printk(XENLOG_INFO "<<< %s %d child -> %s\n", __func__, __LINE__,
-            child->full_name);
-        ret = dt_property_read_u64(child, "opp-hz",
-                &info->opps[info->count].freq);
-        if (!ret)
-            printk(XENLOG_WARNING "%s: opp-hz is not set\n", child->name);
-
-        info->opps[info->count].freq = val;
-
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-        ret = dt_property_read_u32(child, "opp-microvolt", &val);
-        if (!ret)
-            printk(XENLOG_WARNING "%s: opp-microvolt is not set\n", child->name);
-
-        info->opps[info->count].m_volt = val;
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
-        ret = dt_property_read_u32(child, "clock-latency-ns", &val);
-        if (!ret)
-            printk(XENLOG_WARNING "%s: clock-latency-ns is not set\n",
-                    child->full_name);
-
-        info->opps[info->count].clock_latency = val;
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
-        info->count++;
-    }
-
-    return 0;
-}
-
 
 static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
@@ -487,17 +521,10 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
     }
     data->resource = resource;
 
-    data->info = xzalloc(struct dvfs_info);
-    if (!data->info)
-    {
-        result = ENOMEM;
-        goto err_freqfree;
-    }
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
-    result = dvfs_get_info(cpu_dev, data->info);
-    if ( result )
-        goto err_infofree;
-
+    data->cpu = policy->cpu;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* Retrieve current frequency */
     curr_freq = imx_cpufreq_get(policy->cpu);
 
@@ -529,8 +556,6 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
 
     return result;
 
-err_infofree:
-    xfree(data->info);
 err_freqfree:
     xfree(data->freq_table);
 err_unreg:
@@ -556,7 +581,6 @@ static int imx_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 
 static struct cpufreq_driver imx_cpufreq_driver = {
     .name   = "imx-cpufreq",
-
     .verify = imx_cpufreq_verify,
     .target = imx_cpufreq_target,
     .get    = imx_cpufreq_get,
@@ -656,9 +680,10 @@ static bool is_dvfs_capable(unsigned int cpu)
     };
     struct device *cpu_dev;
     struct dt_phandle_args clock_spec;
-    struct dvfs_info info;
+    const struct dvfs_info *info;
     int ret;
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     cpu_dev = get_cpu_device(cpu);
     if ( !cpu_dev )
     {
@@ -666,18 +691,21 @@ static bool is_dvfs_capable(unsigned int cpu)
         return false;
     }
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* First of all find a clock node this CPU is a consumer of */
     ret = dt_parse_phandle_with_args(cpu_dev->of_node,
                                      "clocks",
                                      "#clock-cells",
                                      0,
                                      &clock_spec);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( ret )
     {
         printk(XENLOG_ERR "cpu%d: failed to get clock node\n", cpu);
         return false;
     }
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* Make sure it is an available DVFS clock node */
     if ( !dt_match_node(dvfs_clock_match, clock_spec.np) ||
          !dt_device_is_available(clock_spec.np) )
@@ -687,19 +715,21 @@ static bool is_dvfs_capable(unsigned int cpu)
         return false;
     }
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( clock_spec.args_count < 2 )
     {
         printk(XENLOG_ERR "format mismatch for cpu %d\n", cpu);
     }
 
-    ret = dvfs_get_info(cpu_dev, &info);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    info = dvfs_get_info(cpu);
     if ( ret )
     {
         printk(XENLOG_ERR "cpu%d: failed to get DVFS info of imx id %u\n", cpu,
                 clock_spec.args[0]);
         return false;
     }
-
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     printk(XENLOG_DEBUG "cpu%d: is DVFS capable, belongs to pd%u\n",
            cpu, clock_spec.args[0]);
 
@@ -738,18 +768,19 @@ static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
     return 0;
 }
 
-static int get_transition_latency(struct device *cpu_dev)
+static int get_transition_latency(unsigned int cpu)
 {
     //TODO refactor it
     //TODO get current opp to get latency more accurate
-    struct dvfs_info info;
-    int ret;
+    const struct dvfs_info *info;
 
-    ret = dvfs_get_info(cpu_dev, &info);
-    if ( ret || info.count == 0 )
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    info = dvfs_get_info(cpu);
+    if ( IS_ERR(info) || info->count == 0 )
         return 0;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
-    return info.opps[0].clock_latency;
+    return info->opps[0].clock_latency;
 }
 
 static int init_cpufreq_table(unsigned int cpu,
@@ -757,28 +788,31 @@ static int init_cpufreq_table(unsigned int cpu,
 {
     struct cpufreq_frequency_table *freq_table = NULL;
     struct device *cpu_dev = get_cpu_device(cpu);
-    struct dvfs_info info;
-    struct freq_opp *opp;
-    int i, ret;
+    const struct dvfs_info *info;
+    int i;
 
     BUG_ON(!cpu_dev);
 
-    ret = dvfs_get_info(cpu_dev, &info);
-    if ( ret )
-        return ret;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    info = dvfs_get_info(cpu);
+    if ( IS_ERR(info) )
+        return PTR_ERR(info);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
-    if ( !info.count )
+    if ( !info->count )
         return -EIO;
 
-    freq_table = xzalloc_array(struct cpufreq_frequency_table, info.count + 1);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    freq_table = xzalloc_array(struct cpufreq_frequency_table, info->count + 1);
     if ( !freq_table )
         return -ENOMEM;
 
-    for ( opp = info.opps, i = 0; i < info.count; i++, opp++ )
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    for ( i = 0; i < info->count; i++ )
     {
         freq_table[i].index = i;
         /* Convert Hz -> kHz */
-        freq_table[i].frequency = opp->freq / 1000;
+        freq_table[i].frequency = info->opps[i].freq / 1000;
     }
 
     freq_table[i].index = i;
@@ -853,7 +887,7 @@ static int upload_cpufreq_data(cpumask_t *mask,
     set_xen_guest_handle(perf->states, states);
     perf->state_count = state_count;
 
-    latency = get_transition_latency(get_cpu_device(cpu));
+    latency = get_transition_latency(cpu);
 
     /* Performance states must start from higher values */
     for ( i = 0; (table[i].frequency != CPUFREQ_TABLE_END); i++ )
