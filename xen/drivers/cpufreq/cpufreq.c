@@ -167,7 +167,7 @@ int cpufreq_add_cpu(unsigned int cpu)
     struct cpufreq_policy *policy;
     struct processor_performance *perf;
 
-    printk(XENLOG_INFO "<<< %s %d pminfo = %x, cpu_online %d\n", __func__, __LINE__, (unsigned int)processor_pminfo[cpu],);
+    printk(XENLOG_INFO "<<< %s %d pminfo = %lx, cpu_online %d\n", __func__, __LINE__, (unsigned long)processor_pminfo[cpu],cpu_online(cpu));
     /* to protect the case when Px was not controlled by xen */
     if ( !processor_pminfo[cpu] || !cpu_online(cpu) )
         return -EINVAL;
