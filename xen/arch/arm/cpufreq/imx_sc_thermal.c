@@ -101,19 +101,19 @@ static int imx_sc_thermal_get_temp(void *data, int *temp)
 
 	*temp = GET_TEMP(celsius, tenths);
 
+    printk(XENLOG_INFO "<<< %s %d temp = %ld\n", __func__, __LINE__, temp);
+
 	return 0;
 }
 
 #define CPU_THERMAL0 "cpu-thermal0"
 #define CPU_THERMAL1 "cpu-thermal1"
-#define PMIC_THERMAL0 "pmic-thermal0"
 
 static bool __init imx_dt_node_is_cpu(struct dt_device_node *node)
 {
 	//TODO test
 	if ((strcmp(node->name, CPU_THERMAL0) == 0) ||
-		(strcmp(node->name, CPU_THERMAL1) == 0) ||
-		(strcmp(node->name, PMIC_THERMAL0) == 0))
+		(strcmp(node->name, CPU_THERMAL1) == 0))
 		return true;
 
 	return false;
