@@ -59,7 +59,7 @@ static bool turbo_prohibited = false;
 
 //TODO refactor and move to common place?
 struct freq_opp {
-	u32 freq;
+	u64 freq;
 	u32 m_volt;
     u32 clock_latency;
 };
@@ -331,41 +331,54 @@ static int device_domain_resource(struct device *cpu_dev)
 static int dvfs_get_info(struct device *cpu, struct dvfs_info *info)
 {
     struct dt_device_node *opp_np, *child;
+    struct dt_device_node *cpu_dt;
     int ret;
+    u32 val;
     if (!info)
         return -EINVAL;
 
-    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
-            cpu->of_node->name);
+    cpu_dt = dev_to_dt(cpu);
 
-    opp_np = dt_parse_phandle(cpu->of_node, "operating-points-v2", 0);
+    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
+            cpu_dt->full_name);
+
+    opp_np = dt_parse_phandle(cpu_dt, "operating-points-v2", 0);
     if (!opp_np)
     {
         printk (XENLOG_ERR "Unable to find opp node for cpu: %s\n",
-                cpu->of_node->name);
+                cpu_dt->full_name);
         return -ENODATA;
     }
 
     printk(XENLOG_INFO "<<< %s %d opp_node name = %s\n", __func__, __LINE__,
-            cpu->of_node->name);
+        opp_np->full_name);
 
     dt_for_each_child_node(opp_np, child)
     {
-        ret = dt_property_read_u32(child, "opp-hz",
+        printk(XENLOG_INFO "<<< %s %d child -> %s\n", __func__, __LINE__,
+            child->full_name);
+        ret = dt_property_read_u64(child, "opp-hz",
                 &info->opps[info->count].freq);
         if (!ret)
             printk(XENLOG_WARNING "%s: opp-hz is not set\n", child->name);
 
-        ret = dt_property_read_u32(child, "opp-microvolt",
-                &info->opps[info->count].m_volt);
+        info->opps[info->count].freq = val;
+
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+        ret = dt_property_read_u32(child, "opp-microvolt", &val);
         if (!ret)
             printk(XENLOG_WARNING "%s: opp-microvolt is not set\n", child->name);
 
-        ret = dt_property_read_u32(child, "clock-latency-ns",
-                &info->opps[info->count].clock_latency);
+        info->opps[info->count].m_volt = val;
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+
+        ret = dt_property_read_u32(child, "clock-latency-ns", &val);
         if (!ret)
             printk(XENLOG_WARNING "%s: clock-latency-ns is not set\n",
-                    child->name);
+                    child->full_name);
+
+        info->opps[info->count].clock_latency = val;
+        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
         info->count++;
     }
@@ -528,8 +541,8 @@ err_unreg:
 }
 static int imx_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     struct cpufreq_data *data = cpufreq_driver_data[policy->cpu];
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( data )
     {
@@ -701,7 +714,7 @@ static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
 
     BUG_ON(!cpu_dev);
 
-    domain = scpi_ops->device_domain_id(cpu_dev);
+    domain = device_domain_resource(cpu_dev);
     if ( domain < 0 )
         return domain;
 
@@ -717,7 +730,7 @@ static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
         if ( !tcpu_dev )
             continue;
 
-        tdomain = scpi_ops->device_domain_id(tcpu_dev);
+        tdomain = device_domain_resource(tcpu_dev);
         if ( tdomain == domain )
             cpumask_set_cpu(tcpu, mask);
     }
@@ -727,7 +740,16 @@ static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
 
 static int get_transition_latency(struct device *cpu_dev)
 {
-    return scpi_ops->get_transition_latency(cpu_dev);
+    //TODO refactor it
+    //TODO get current opp to get latency more accurate
+    struct dvfs_info info;
+    int ret;
+
+    ret = dvfs_get_info(cpu_dev, &info);
+    if ( ret || info.count == 0 )
+        return 0;
+
+    return info.opps[0].clock_latency;
 }
 
 static int init_cpufreq_table(unsigned int cpu,
