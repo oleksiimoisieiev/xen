@@ -236,8 +236,8 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 static int dvfs_set(int resource_id, unsigned int freq)
 {
     struct arm_smccc_res res;
-    printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
-            resource_id, freq);
+//    printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
+ //           resource_id, freq);
 
     arm_smccc_smc(IMX_SIP_CPUFREQ, IMX_SIP_SET_CPUFREQ, resource_id,
             freq * 1000 /* kHz to Hz */, &res);
