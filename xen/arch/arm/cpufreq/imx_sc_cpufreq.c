@@ -111,7 +111,6 @@ static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
     int ret;
     u32 val;
 
-    //TODO free allocated info
     if (cpufreq_dvfs_info[cpu])
     {
         return cpufreq_dvfs_info[cpu];
@@ -545,8 +544,6 @@ int imx_cpufreq_throttle(bool enable, int cpu)
     else
     {
         spin_lock(&freq_lock);
-        printk(XENLOG_INFO "<<< %s %d policy->cur = %d second = %d\n", __func__, __LINE__,
-                policy->cur, policy->cpuinfo.second_max_freq);
         /* Check if we are running on turbo frequency */
         if ( policy->cur > policy->cpuinfo.second_max_freq )
         {
@@ -694,8 +691,6 @@ static int get_sharing_cpus(unsigned int cpu, cpumask_t *mask)
 
 static int get_transition_latency(unsigned int cpu)
 {
-    //TODO refactor it
-    //TODO get current opp to get latency more accurate
     const struct dvfs_info *info;
 
     info = dvfs_get_info(cpu);
