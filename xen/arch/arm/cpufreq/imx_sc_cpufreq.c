@@ -75,7 +75,6 @@ static struct dvfs_info *cpufreq_dvfs_info[NR_CPUS];
 
 static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !cpumask_test_cpu(cpuid, &cpu_online_map) )
         return -EINVAL;
 
@@ -124,9 +123,6 @@ static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
 
     cpu_dt = dev_to_dt(cpu_dev);
 
-    printk(XENLOG_INFO "<<< %s %d node name = %s\n", __func__, __LINE__,
-            cpu_dt->full_name);
-
     opp_np = dt_parse_phandle(cpu_dt, "operating-points-v2", 0);
     if (!opp_np)
     {
@@ -136,30 +132,18 @@ static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
         goto err;
     }
 
-    printk(XENLOG_INFO "<<< %s %d opp_node name = %s\n", __func__, __LINE__,
-        opp_np->full_name);
-
     dt_for_each_child_node(opp_np, child)
     {
-
-        printk(XENLOG_INFO "<<< %s %d child -> %s\n", __func__, __LINE__,
-            child->full_name);
-
         ret = dt_property_read_u64(child, "opp-hz",
                 &info->opps[info->count].freq);
         if (!ret)
             printk(XENLOG_WARNING "%s: opp-hz is not set\n", child->name);
 
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-        info->opps[info->count].m_volt = val;
-
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         ret = dt_property_read_u32(child, "opp-microvolt", &val);
         if (!ret)
             printk(XENLOG_WARNING "%s: opp-microvolt is not set\n", child->name);
 
         info->opps[info->count].m_volt = val;
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
         ret = dt_property_read_u32(child, "clock-latency-ns", &val);
         if (!ret)
@@ -167,7 +151,6 @@ static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
                     child->full_name);
 
         info->opps[info->count].clock_latency = val;
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
         info->count++;
     }
@@ -352,12 +335,9 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
     cpufreq_verify_within_limits(policy, 0,
         perf->states[perf->platform_limit].core_frequency * 1000);
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     return cpufreq_frequency_table_verify(policy, data->freq_table);
 }
 
-
-/* TODO boost is not supported in current implementation */
 /* TODO Add a way to recognize Boost frequencies */
 static inline bool is_turbo_freq(int index, int count)
 {
@@ -374,27 +354,25 @@ static inline bool is_turbo_freq(int index, int count)
 
 static int device_domain_resource(struct device *cpu_dev)
 {
-    // TODO test ir
-	struct dt_phandle_args clock_specs;
-	int ret;
+    struct dt_phandle_args clock_specs;
+    int ret;
 
-	ret = dt_parse_phandle_with_args(cpu_dev->of_node,
-			"clocks",
-			"#clock-cells",
-			0,
-			&clock_specs);
+    ret = dt_parse_phandle_with_args(cpu_dev->of_node,
+                "clocks",
+                "#clock-cells",
+                0,
+                &clock_specs);
 
-	if (clock_specs.args_count > 2) {
-		printk(XENLOG_WARNING "%s: too many cells in clock specifier %d\n",
-				cpu_dev->of_node->name, clock_specs.args_count);
-	}
+    if (clock_specs.args_count > 2) {
+        printk(XENLOG_WARNING "%s: too many cells in clock specifier %d\n",
+            cpu_dev->of_node->name, clock_specs.args_count);
+    }
 
-	return clock_specs.args_count ? clock_specs.args[0] : 0;
+    return clock_specs.args_count ? clock_specs.args[0] : 0;
 }
 
 static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
-    //TODO move to common part?
     int result;
     int resource;
     unsigned int i;
@@ -404,8 +382,6 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
     struct device *cpu_dev;
     struct cpufreq_data *data;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-    //TODO test
     cpu_dev = get_cpu_device(policy->cpu);
     if ( !cpu_dev )
         return -ENODEV;
@@ -491,10 +467,7 @@ static int imx_cpufreq_cpu_init(struct cpufreq_policy *policy)
     }
     data->resource = resource;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
     data->cpu = policy->cpu;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* Retrieve current frequency */
     curr_freq = imx_cpufreq_get(policy->cpu);
 
@@ -532,13 +505,14 @@ err_unreg:
 static int imx_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 {
     struct cpufreq_data *data = cpufreq_driver_data[policy->cpu];
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( data )
     {
         xfree(data->freq_table);
         xfree(data);
         cpufreq_driver_data[policy->cpu] = NULL;
+        xfree(cpufreq_dvfs_info[policy->cpu]);
+        cpufreq_dvfs_info[policy->cpu] = NULL;
     }
 
     return 0;
@@ -559,14 +533,10 @@ int imx_cpufreq_throttle(bool enable, int cpu)
     struct cpufreq_policy *policy;
     int result = 0;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
     policy = per_cpu(cpufreq_cpu_policy, cpu);
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !policy )
        return 0;
 
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !enable )
     {
         /* Just allow to set any frequencies... */
@@ -580,18 +550,15 @@ int imx_cpufreq_throttle(bool enable, int cpu)
         /* Check if we are running on turbo frequency */
         if ( policy->cur > policy->cpuinfo.second_max_freq )
         {
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             /* Set max non-turbo frequency */
             result = imx_cpufreq_set(policy->cpu,
                                       policy->cpuinfo.second_max_freq);
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
             if ( result < 0 )
             {
                 spin_unlock(&freq_lock);
                 return result;
             }
         }
-        printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         /* Signal that turbo frequencies are not allowed to be set */
         cpufreq_driver_data[policy->cpu]->turbo_prohibited = true;
         spin_unlock(&freq_lock);
@@ -629,10 +596,9 @@ void cpufreq_debug_toggle(unsigned char key)
     printk(XENLOG_ERR "CPUFreq debug is %s\n", cpufreq_debug ? "enabled" : "disabled");
 }
 
-//TODO implement me
+/* TODO Implement me */
 static void cpufreq_imx_driver_deinit(void)
 {
-
 }
 
 static bool is_dvfs_capable(unsigned int cpu)
@@ -648,7 +614,6 @@ static bool is_dvfs_capable(unsigned int cpu)
     const struct dvfs_info *info;
     int ret;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     cpu_dev = get_cpu_device(cpu);
     if ( !cpu_dev )
     {
@@ -656,21 +621,18 @@ static bool is_dvfs_capable(unsigned int cpu)
         return false;
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* First of all find a clock node this CPU is a consumer of */
     ret = dt_parse_phandle_with_args(cpu_dev->of_node,
                                      "clocks",
                                      "#clock-cells",
                                      0,
                                      &clock_spec);
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( ret )
     {
         printk(XENLOG_ERR "cpu%d: failed to get clock node\n", cpu);
         return false;
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* Make sure it is an available DVFS clock node */
     if ( !dt_match_node(dvfs_clock_match, clock_spec.np) ||
          !dt_device_is_available(clock_spec.np) )
@@ -680,13 +642,11 @@ static bool is_dvfs_capable(unsigned int cpu)
         return false;
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( clock_spec.args_count < 2 )
     {
         printk(XENLOG_ERR "format mismatch for cpu %d\n", cpu);
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     info = dvfs_get_info(cpu);
     if ( ret )
     {
@@ -694,7 +654,6 @@ static bool is_dvfs_capable(unsigned int cpu)
                 clock_spec.args[0]);
         return false;
     }
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     printk(XENLOG_DEBUG "cpu%d: is DVFS capable, belongs to pd%u\n",
            cpu, clock_spec.args[0]);
 
@@ -739,11 +698,9 @@ static int get_transition_latency(unsigned int cpu)
     //TODO get current opp to get latency more accurate
     const struct dvfs_info *info;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     info = dvfs_get_info(cpu);
     if ( IS_ERR(info) || info->count == 0 )
         return 0;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     return info->opps[0].clock_latency;
 }
@@ -758,21 +715,17 @@ static int init_cpufreq_table(unsigned int cpu,
 
     BUG_ON(!cpu_dev);
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     info = dvfs_get_info(cpu);
     if ( IS_ERR(info) )
         return PTR_ERR(info);
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( !info->count )
         return -EIO;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     freq_table = xzalloc_array(struct cpufreq_frequency_table, info->count + 1);
     if ( !freq_table )
         return -ENOMEM;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     for ( i = 0; i < info->count; i++ )
     {
         freq_table[i].index = i;
@@ -957,7 +910,6 @@ static int __init imx_cpufreq_postinit(void)
 static int __init cpufreq_imx_driver_init(void)
 {
     int ret;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if ( cpufreq_controller != FREQCTL_xen )
         return 0;
