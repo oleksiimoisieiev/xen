@@ -39,10 +39,7 @@
 #define IMX_SIP_CPUFREQ         0xC2000001
 #define IMX_SIP_SET_CPUFREQ     0
 
-//TODO implement
-//TODO move to common part
-//bool cpufreq_debug = false;
-bool cpufreq_debug = true;
+bool cpufreq_debug = false;
 
 /*
  * To protect changing frequency driven by both CPUFreq governor and
@@ -52,7 +49,6 @@ static DEFINE_SPINLOCK(freq_lock);
 
 #define OPP_MAX 8
 
-//TODO refactor and move to common place?
 struct freq_opp {
 	u64 freq;
 	u32 m_volt;
@@ -64,22 +60,19 @@ struct dvfs_info {
 	struct freq_opp opps[OPP_MAX];
 };
 
-//TODO move to common place? 
 struct cpufreq_data
 {
     int cpu;
     struct processor_performance *perf;
     struct cpufreq_frequency_table *freq_table;
     bool turbo_prohibited;
-    //TODO do i need it here?
-    //struct dvfs_info *info; /* DVFS capabilities of the CPU's power domain */
     int resource; /* resource id this CPU belongs to */
 
 };
 
 static struct cpufreq_data *cpufreq_driver_data[NR_CPUS];
 static struct dvfs_info *cpufreq_dvfs_info[NR_CPUS];
-//TODO move to common part?
+
 static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
 {
     printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
@@ -100,7 +93,6 @@ static int imx_cpufreq_update(int cpuid, struct cpufreq_policy *policy)
     return 0;
 }
 
-// TODO moveto common place all all cpufreq related functions
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
 
 struct device *get_cpu_device(unsigned int cpu)
@@ -111,7 +103,6 @@ struct device *get_cpu_device(unsigned int cpu)
         return NULL;
 }
 
-//TODO test it
 static const struct dvfs_info *dvfs_get_info(unsigned int cpu)
 {
     struct dt_device_node *opp_np, *child;
@@ -188,14 +179,11 @@ err:
     return ERR_PTR(ret);
 }
 
-//TODO test
 static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 {
     int ret, i;
     uint32_t rate;
     const struct dvfs_info *info;
-    printk(XENLOG_INFO "<<< %s %d get clock for rsrc: %d\n", __func__, __LINE__,
-            data->resource);
 
     ret = sc_pm_get_clock_rate(mu_ipcHandle, data->resource,
         SC_PM_CLK_CPU, &rate);
@@ -212,9 +200,6 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
         return PTR_ERR(info);
     }
 
-    printk(XENLOG_INFO "<<< %s %d clock rate %d\n", __func__, __LINE__,
-            rate);
-
     for (i=0; i< info->count; i++)
         if (info->opps[i].freq == rate)
         {
@@ -224,26 +209,10 @@ static int dvfs_get_idx(struct cpufreq_data *data, int *idx)
 
     return -ENODATA;
 }
-/*
-static int get_cpu_by_resource(int resource_id)
-{
-    int i;
-    for ( i = 0; i < NR_CPUS; i++ )
-    {
-        if ( cpufreq_driver_data[i]->resource == resource_id )
-        {
-            return cpufreq_driver_data[i]->cpu;
-        }
-    }
-    return -EINVAL;
-}
-*/
+
 static int dvfs_set(int resource_id, unsigned int freq)
 {
     struct arm_smccc_res res;
-    /*printk(XENLOG_INFO "<<< %s %d res_id= %d freq=%d\n", __func__, __LINE__,
-           resource_id, freq);
-*/
     arm_smccc_smc(IMX_SIP_CPUFREQ, IMX_SIP_SET_CPUFREQ, resource_id,
             freq * 1000 /* kHz to Hz */, &res);
     if (res.a0)
@@ -275,8 +244,6 @@ static unsigned int imx_cpufreq_get(unsigned int cpu)
     const struct dvfs_info *info;
     int ret, idx = 0;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
-
     if ( cpu >= nr_cpu_ids || !cpu_online(cpu) )
         return 0;
 
@@ -292,8 +259,6 @@ static unsigned int imx_cpufreq_get(unsigned int cpu)
     if ( ret )
         return 0;
 
-
-    printk(XENLOG_INFO "<<< %s %d got idx = %d\n", __func__, __LINE__, idx);
     /* Convert Hz -> kHz */
     return info->opps[idx].freq / 1000;
 }
@@ -377,7 +342,6 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
     struct cpufreq_data *data;
     struct processor_performance *perf;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !policy || !(data = cpufreq_driver_data[policy->cpu]) ||
          !processor_pminfo[policy->cpu] )
         return -EINVAL;
@@ -388,6 +352,7 @@ static int imx_cpufreq_verify(struct cpufreq_policy *policy)
     cpufreq_verify_within_limits(policy, 0,
         perf->states[perf->platform_limit].core_frequency * 1000);
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     return cpufreq_frequency_table_verify(policy, data->freq_table);
 }
 
@@ -638,17 +603,11 @@ int imx_cpufreq_throttle(bool enable, int cpu)
     return 0;
 }
 
-    //TODO move to common part?
-//TODO test
 int cpufreq_cpu_init(unsigned int cpuid)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     return cpufreq_add_cpu(cpuid);
 }
 
-//TODO move to common place
-
-//TODO move to common part
 static int thermal_init(void)
 {
 	struct dt_device_node *ths;
@@ -664,7 +623,6 @@ static int thermal_init(void)
 	return (num_ths > 0) ? 0 : -ENODEV;
 }
 
-//TODO move to common part
 void cpufreq_debug_toggle(unsigned char key)
 {
     cpufreq_debug = !cpufreq_debug;
@@ -672,7 +630,6 @@ void cpufreq_debug_toggle(unsigned char key)
 }
 
 //TODO implement me
-//TODO move to common part
 static void cpufreq_imx_driver_deinit(void)
 {
 
