@@ -44,7 +44,6 @@
 
 extern int imx_cpufreq_throttle(bool enable, int cpu);
 
-//TODO move to common place
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
 #define CELSIUS(temp) temp >> 3
 #define TENTH(temp) (temp - (temp >> 3) * 1000) / 100
@@ -237,7 +236,6 @@ static void imx_sc_thermal_work(void *data)
 	{
 		printk(XENLOG_WARNING "Unable to read temp from sensor: %d",
 				sensor->resource_id);
-		//TODO make protection for the case when sensor no longer available
 		return;
 	}
 
@@ -307,8 +305,6 @@ static int __init imx_sc_thermal_probe(struct dt_device_node *np)
 			break;
 		}
 
-        printk(XENLOG_INFO "<<< %s %d sens res_id= %d\n", __func__, __LINE__,
-                sensor->resource_id);
 		sensor->cluster_cpu = cpu;
 		sensor->throttle_enabled = false;
 		init_timer(&sensor->timer, imx_sc_thermal_work, (void *)sensor, cpu);
@@ -324,7 +320,6 @@ err_free:
 
 	return ret;
 }
-//TODO cleanup function
 
 static const struct dt_device_match imx_sc_thermal_table[] __initconst = {
 	{ .compatible = "fsl,imx-sc-thermal", },
