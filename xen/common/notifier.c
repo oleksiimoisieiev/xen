@@ -18,21 +18,30 @@
  * Adds a notifier to a raw notifier chain.
  * All locking must be provided by the caller.
  */
-void __init notifier_chain_register(
+void notifier_chain_register(
     struct notifier_head *nh, struct notifier_block *n)
 {
-    struct list_head *chain = &nh->head;
+    struct list_head *chain;
     struct notifier_block *nb;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
+    chain = &nh->head;
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     while ( chain->next != &nh->head )
     {
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         nb = list_entry(chain->next, struct notifier_block, chain);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         if ( n->priority > nb->priority )
             break;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         chain = chain->next;
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     }
 
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     list_add(&n->chain, chain);
+    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 }
 
 /**
@@ -43,7 +52,7 @@ void __init notifier_chain_register(
  * Removes a notifier from a raw notifier chain.
  * All locking must be provided by the caller.
  */
-void __init notifier_chain_unregister(
+void notifier_chain_unregister(
     struct notifier_head *nh, struct notifier_block *n)
 {
     list_del(&n->chain);
