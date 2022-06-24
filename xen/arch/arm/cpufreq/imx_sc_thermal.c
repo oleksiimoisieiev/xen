@@ -336,7 +336,8 @@ static int __init imx_sc_thermal_init(struct dt_device_node *np,
 {
 	int ret;
 
-	dt_device_set_used_by(np, DOMID_XEN);
+	//We do not set used_by to DOMID_XEN because we need this node
+	//to also be available for Dom0
 
 	ret = imx_sc_thermal_probe(np);
 	if (ret) {
