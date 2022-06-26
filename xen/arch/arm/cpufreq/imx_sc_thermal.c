@@ -190,7 +190,7 @@ static unsigned long do_throttling(struct imx_sc_sensor *sensor, int temp)
 		printk(XENLOG_WARNING "Reached critical temperature (%d C): rebooting machine\n",
 			temp / 1000);
 
-		//machine_restart(0);
+		machine_restart(0);
 	}
 	else
 	{
