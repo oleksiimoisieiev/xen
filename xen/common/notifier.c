@@ -23,25 +23,17 @@ void notifier_chain_register(
 {
     struct list_head *chain;
     struct notifier_block *nb;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     chain = &nh->head;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     while ( chain->next != &nh->head )
     {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         nb = list_entry(chain->next, struct notifier_block, chain);
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         if ( n->priority > nb->priority )
             break;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         chain = chain->next;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     list_add(&n->chain, chain);
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 }
 
 /**

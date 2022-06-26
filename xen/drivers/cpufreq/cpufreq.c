@@ -69,7 +69,6 @@ static int __init setup_cpufreq_option(const char *str)
     const char *arg = strpbrk(str, ",:");
     int choice;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if ( !arg )
         arg = strchr(str, '\0');
     choice = parse_bool(str, arg);
@@ -107,7 +106,6 @@ struct cpufreq_governor *__find_governor(const char *governor)
 {
     struct cpufreq_governor *t;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (!governor)
         return NULL;
 
@@ -123,7 +121,6 @@ int __init cpufreq_register_governor(struct cpufreq_governor *governor)
     if (!governor)
         return -EINVAL;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (__find_governor(governor->name) != NULL)
         return -EEXIST;
 
@@ -137,7 +134,6 @@ int cpufreq_limit_change(unsigned int cpu)
     struct cpufreq_policy *data;
     struct cpufreq_policy policy;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (!cpu_online(cpu) || !(data = per_cpu(cpufreq_cpu_policy, cpu)) ||
         !processor_pminfo[cpu])
         return -ENODEV;
@@ -167,21 +163,17 @@ int cpufreq_add_cpu(unsigned int cpu)
     struct cpufreq_policy *policy;
     struct processor_performance *perf;
 
-    printk(XENLOG_INFO "<<< %s %d pminfo = %lx, cpu_online %d\n", __func__, __LINE__, (unsigned long)processor_pminfo[cpu],cpu_online(cpu));
     /* to protect the case when Px was not controlled by xen */
     if ( !processor_pminfo[cpu] || !cpu_online(cpu) )
         return -EINVAL;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     perf = &processor_pminfo[cpu]->perf;
 
     if ( !(perf->init & XEN_PX_INIT) )
         return -EINVAL;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (!cpufreq_driver.init)
         return 0;
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
 
     if (per_cpu(cpufreq_cpu_policy, cpu))
         return 0;
@@ -231,7 +223,6 @@ int cpufreq_add_cpu(unsigned int cpu)
         }
     }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (!domexist || hw_all) {
         policy = xzalloc(struct cpufreq_policy);
         if (!policy) {
@@ -245,13 +236,10 @@ int cpufreq_add_cpu(unsigned int cpu)
             goto err0;
         }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         policy->cpu = cpu;
         per_cpu(cpufreq_cpu_policy, cpu) = policy;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         ret = cpufreq_driver.init(policy);
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         if (ret) {
             free_cpumask_var(policy->cpus);
             xfree(policy);
@@ -259,7 +247,6 @@ int cpufreq_add_cpu(unsigned int cpu)
             goto err0;
         }
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
         if (cpufreq_verbose)
             printk("CPU %u initialization completed\n", cpu);
     } else {
@@ -335,7 +322,6 @@ int cpufreq_del_cpu(unsigned int cpu)
     struct cpufreq_policy *policy;
     struct processor_performance *perf;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     /* to protect the case when Px was not controlled by xen */
     if ( !processor_pminfo[cpu] || !cpu_online(cpu) )
         return -EINVAL;
@@ -439,7 +425,6 @@ int set_px_pminfo(uint32_t acpi_id, struct xen_processor_performance *dom0_px_in
     struct processor_pminfo *pmpt;
     struct processor_performance *pxpt;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     cpuid = get_cpu_id(acpi_id);
     if ( cpuid < 0 || !dom0_px_info)
     {
@@ -585,7 +570,6 @@ static void cpufreq_cmdline_common_para(struct cpufreq_policy *new_policy)
 
 static int __init cpufreq_handle_common_option(const char *name, const char *val)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     if (!strcmp(name, "maxfreq") && val) {
         usr_max_freq = simple_strtoul(val, NULL, 0);
         return 1;
@@ -619,7 +603,6 @@ static int __init cpufreq_cmdline_parse(const char *s)
     char *str = buf;
     unsigned int gov_index = 0;
     int rc = 0;
-    printk(XENLOG_INFO "<<< %s %d s=%s\n", __func__, __LINE__, s);
 
     strlcpy(buf, s, sizeof(buf));
     do {
@@ -632,7 +615,6 @@ static int __init cpufreq_cmdline_parse(const char *s)
         if (val)
             *val++ = '\0';
 
-        printk(XENLOG_INFO "<<< %s %d val=%s\n", __func__, __LINE__, val);
         if (!cpufreq_opt_governor) {
             if (!val) {
                 for (i = 0; i < ARRAY_SIZE(cpufreq_governors); ++i) {
@@ -668,7 +650,6 @@ static int cpu_callback(
 {
     unsigned int cpu = (unsigned long)hcpu;
 
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     switch ( action )
     {
     case CPU_DOWN_FAILED:
@@ -691,7 +672,6 @@ static struct notifier_block cpu_nfb = {
 
 static int __init cpufreq_presmp_init(void)
 {
-    printk(XENLOG_INFO "<<< %s %d\n", __func__, __LINE__);
     register_cpu_notifier(&cpu_nfb);
     return 0;
 }
