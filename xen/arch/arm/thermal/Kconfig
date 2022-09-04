@@ -1,0 +1,13 @@
+config THERMAL_IMX
+	bool "Enable thermal_imx driver"
+	depends on HAS_THERMAL
+	help
+	  Enable thermal_imx driver. This driver implements thermal
+	  throttling functionality for i.MX8 boards. It uses scfw rpc
+	  to access hardware resoucers.
+
+config THERMAL_DEBUG_DRV
+	bool "Enable debug thermal driver"
+	depends on HAS_THERMAL
+	help
+	  Enables debug thermal driver which is controlled by hypfs params.

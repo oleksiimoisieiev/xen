@@ -27,9 +27,12 @@
 #include <asm/setup.h>
 #include <asm/cpufeature.h>
 #include <asm/domain_build.h>
+#include <asm/vscmi.h>
 
 #include <xen/irq.h>
 #include <xen/grant_table.h>
+
+#include "scmi_protocol.h"
 
 static unsigned int __initdata opt_dom0_max_vcpus;
 integer_param("dom0_max_vcpus", opt_dom0_max_vcpus);
@@ -37,6 +40,9 @@ integer_param("dom0_max_vcpus", opt_dom0_max_vcpus);
 /* If true, the extended regions support is enabled for dom0 */
 static bool __initdata opt_ext_regions = true;
 boolean_param("ext_regions", opt_ext_regions);
+
+static bool __initdata dom0_vscmi = true;
+boolean_param("dom0_vscmi", dom0_vscmi);
 
 static u64 __initdata dom0_mem;
 static bool __initdata dom0_mem_set;
@@ -1339,6 +1345,9 @@ static int __init make_cpus_node(const struct domain *d, void *fdt)
     bool clock_valid;
     uint64_t mpidr_aff;
 
+    /* Handle to SCMI clocks */
+    u32 cells[2] = {cpu_to_fdt32(GUEST_PHANDLE_SCPI_CPU_CLOCKS), 0};
+
     dt_dprintk("Create cpus node\n");
 
     if ( !cpus )
@@ -1439,6 +1448,14 @@ static int __init make_cpus_node(const struct domain *d, void *fdt)
         if ( is_64bit_domain(d) )
         {
             res = fdt_property_string(fdt, "enable-method", "psci");
+            if ( res )
+                return res;
+        }
+
+        if ( dom0_vscmi )
+        {
+            cells[1] = cpu_to_fdt32(cpu);
+            res = fdt_property(fdt, "clocks", &cells, sizeof(cells));
             if ( res )
                 return res;
         }
@@ -1957,6 +1974,174 @@ static int __init handle_device(struct domain *d, struct dt_device_node *dev,
     return 0;
 }
 
+static int __init make_scmi_sram_node(struct domain *d, struct kernel_info *kinfo,
+                                       void *fdt)
+{
+    int res;
+    char name[32];
+    __be32 reg[GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS];
+    __be32 *cells;
+
+    /* Create SRAM node */
+    snprintf(name, sizeof(name), "sram@%lx", kinfo->scmi_shmem);
+    res = fdt_begin_node(fdt, name);
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "compatible", "mmio-sram");
+    if ( res )
+        return res;
+
+    cells = &reg[0];
+    dt_child_set_range(&cells, GUEST_ROOT_ADDRESS_CELLS,
+                       GUEST_ROOT_SIZE_CELLS, kinfo->scmi_shmem,
+                       4096);
+
+    res = fdt_property(fdt, "reg", reg, sizeof(reg));
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(kinfo->fdt, "#address-cells", 2);
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(kinfo->fdt, "#size-cells", 2);
+    if ( res )
+        return res;
+
+    res = fdt_property(fdt, "ranges", 0, 0);
+    if ( res )
+        return res;
+
+    /* Create scp-shmem node inside the SRAM node */
+    res = fdt_begin_node(fdt, "scp-shmem@0");
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "compatible", "arm,scp-shmem");
+    if ( res )
+        return res;
+
+    cells = &reg[0];
+    dt_child_set_range(&cells, GUEST_ROOT_ADDRESS_CELLS,
+                       GUEST_ROOT_SIZE_CELLS, kinfo->scmi_shmem,
+                       VSCMI_SHM_SIZE);
+
+    res = fdt_property(fdt, "reg", reg, sizeof(reg));
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_SCPI_SHMEM);
+    if ( res )
+        return res;
+
+    /* End of scp-shmem node */
+    res = fdt_end_node(fdt);
+    if ( res )
+        return res;
+
+    /* End of sram node */
+    res = fdt_end_node(fdt);
+
+    return res;
+}
+
+static int __init make_scmi_mbox_node(struct domain *d, void *fdt)
+{
+    int res;
+
+    /* Begin mbox node */
+    res = fdt_begin_node(fdt, "mailbox@smc");
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "compatible", "arm,smc-mbox");
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "#mbox-cells", 1);
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "method", "hvc");
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "arm,func-ids", ARM_SMCCC_SCMI_MBOX_TRIGGER);
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_SCPI_MBOX);
+    if ( res )
+        return res;
+
+    /* End of mbox node */
+    res = fdt_end_node(fdt);
+
+    return res;
+}
+
+static int __init make_scmi_nodes(struct domain *d, struct kernel_info *kinfo,
+                                  void *fdt)
+{
+    int res;
+    u32 mboxes[2] = {cpu_to_fdt32(GUEST_PHANDLE_SCPI_MBOX), 0};
+
+    res = make_scmi_sram_node(d, kinfo, fdt);
+    if ( res )
+        return res;
+
+    res = make_scmi_mbox_node(d, fdt);
+    if ( res )
+        return res;
+
+    /* Begin scmi node */
+    res = fdt_begin_node(fdt, "scmi");
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "compatible", "arm,scmi");
+    if ( res )
+        return res;
+
+    res = fdt_property(fdt, "mboxes", mboxes, sizeof(mboxes));
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "shmem", GUEST_PHANDLE_SCPI_SHMEM);
+    if ( res )
+        return res;
+
+    /* Start of scmi_dvfs: protocol@13 node */
+    res = fdt_begin_node(fdt, "protocol@13");
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "reg",  SCMI_PROTOCOL_PERF);
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "phandle",  GUEST_PHANDLE_SCPI_CPU_CLOCKS);
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "#clock-cells",  1);
+    if ( res )
+        return res;
+
+    /* End of scmi_dvfs: protocol@13 node */
+    res = fdt_end_node(fdt);
+    if ( res )
+        return res;
+
+    /* End of scmi node */
+    res = fdt_end_node(fdt);
+    if ( res )
+        return res;
+
+    return 0;
+}
+
 static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
                               struct dt_device_node *node,
                               p2m_type_t p2mt)
@@ -2136,6 +2321,13 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         {
             res = make_memory_node(d, kinfo->fdt, addrcells, sizecells,
                                    &bootinfo.reserved_mem);
+            if ( res )
+                return res;
+        }
+        if ( dom0_vscmi )
+        {
+
+            res = make_scmi_nodes(d, kinfo, kinfo->fdt);
             if ( res )
                 return res;
         }
@@ -3068,6 +3260,22 @@ void __init create_domUs(void)
     }
 }
 
+/*
+ * Returns number of pages that should be mapped for system use in dom0
+ * This makes possible to leave room for some magic pages that should be
+ * owned by dom0, but do not map them by as regular dom0 ram.
+ * Similar mechanism was implemented in alloc_magic_pages for guest domains.
+ */
+static unsigned int get_magic_page_count(void)
+{
+    unsigned int count = 0;
+
+    if ( dom0_vscmi )
+        count++;
+
+    return count;
+}
+
 static int __init construct_dom0(struct domain *d)
 {
     struct kernel_info kinfo = {};
@@ -3090,7 +3298,7 @@ static int __init construct_dom0(struct domain *d)
 
     iommu_hwdom_init(d);
 
-    d->max_pages = dom0_mem >> PAGE_SHIFT;
+    d->max_pages = (dom0_mem >> PAGE_SHIFT) + get_magic_page_count();
 
     kinfo.unassigned_mem = dom0_mem;
     kinfo.d = d;
@@ -3105,6 +3313,8 @@ static int __init construct_dom0(struct domain *d)
 #endif
     allocate_memory_11(d, &kinfo);
     find_gnttab_region(d, &kinfo);
+
+    kinfo.scmi_shmem = kinfo.gnttab_start + kinfo.gnttab_size;
 
     /* Map extra GIC MMIO, irqs and other hw stuffs to dom0. */
     rc = gic_map_hwdom_extra_mappings(d);
@@ -3122,6 +3332,13 @@ static int __init construct_dom0(struct domain *d)
 
     if ( rc < 0 )
         return rc;
+
+    if ( dom0_vscmi )
+    {
+        rc = domain_vscmi_init(d, gaddr_to_gfn(kinfo.scmi_shmem));
+        if ( rc < 0 )
+            return rc;
+    }
 
     return construct_domain(d, &kinfo);
 }

@@ -20,6 +20,7 @@ struct device
 #endif
     struct dev_archdata archdata;
     struct iommu_fwspec *iommu_fwspec; /* per-device IOMMU instance data */
+    void *driver_data;
 };
 
 typedef struct device device_t;
@@ -35,6 +36,8 @@ enum device_class
     DEVICE_IOMMU,
     DEVICE_GIC,
     DEVICE_PCI,
+    DEVICE_MAILBOX,
+    DEVICE_THS,
     /* Use for error */
     DEVICE_UNKNOWN,
 };

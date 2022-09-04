@@ -8,6 +8,8 @@ obj-y += platforms/
 endif
 obj-$(CONFIG_TEE) += tee/
 obj-$(CONFIG_HAS_VPCI) += vpci.o
+obj-$(CONFIG_HAS_CPUFREQ) += cpufreq/
+obj-$(CONFIG_HAS_THERMAL) += thermal/
 
 obj-$(CONFIG_HAS_ALTERNATIVE) += alternative.o
 obj-y += bootfdt.init.o
@@ -65,6 +67,7 @@ obj-y += vtimer.o
 obj-$(CONFIG_SBSA_VUART_CONSOLE) += vpl011.o
 obj-y += vsmc.o
 obj-y += vpsci.o
+obj-$(CONFIG_VSCMI) += vscmi.o
 obj-y += vuart.o
 
 #obj-bin-y += ....o

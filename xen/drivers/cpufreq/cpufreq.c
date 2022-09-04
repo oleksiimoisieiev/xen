@@ -42,9 +42,8 @@
 #include <asm/bug.h>
 #include <asm/io.h>
 #include <asm/processor.h>
-
-#include <acpi/acpi.h>
-#include <acpi/cpufreq/cpufreq.h>
+#include <asm/percpu.h>
+#include <xen/cpufreq.h>
 
 static unsigned int __read_mostly usr_min_freq;
 static unsigned int __read_mostly usr_max_freq;
@@ -489,11 +488,22 @@ int set_px_pminfo(uint32_t acpi_id, struct xen_processor_performance *dom0_px_in
             ret = -ENOMEM;
             goto out;
         }
-        if ( copy_from_guest(pxpt->states, dom0_px_info->states,
-                             dom0_px_info->state_count) )
+
+        if ( dom0_px_info->flags & XEN_PX_DATA )
         {
-            ret = -EFAULT;
-            goto out;
+            struct xen_processor_px *states = (dom0_px_info->states).p;
+
+            memcpy(pxpt->states, states,
+                   dom0_px_info->state_count * sizeof(struct xen_processor_px));
+        }
+        else
+        {
+            if ( copy_from_guest(pxpt->states, dom0_px_info->states,
+                                 dom0_px_info->state_count) )
+            {
+                ret = -EFAULT;
+                goto out;
+            }
         }
         pxpt->state_count = dom0_px_info->state_count;
 
@@ -535,8 +545,9 @@ int set_px_pminfo(uint32_t acpi_id, struct xen_processor_performance *dom0_px_in
         }
     }
 
-    if ( dom0_px_info->flags == ( XEN_PX_PCT | XEN_PX_PSS |
-                XEN_PX_PSD | XEN_PX_PPC ) )
+    if ( (dom0_px_info->flags & (XEN_PX_PCT | XEN_PX_PSS |
+          XEN_PX_PSD | XEN_PX_PPC)) == (XEN_PX_PCT | XEN_PX_PSS |
+          XEN_PX_PSD | XEN_PX_PPC) )
     {
         pxpt->init = XEN_PX_INIT;
 
@@ -584,7 +595,8 @@ static int __init cpufreq_cmdline_parse(const char *s)
         &cpufreq_gov_userspace,
         &cpufreq_gov_dbs,
         &cpufreq_gov_performance,
-        &cpufreq_gov_powersave
+        &cpufreq_gov_powersave,
+        &cpufreq_gov_vscmi
     };
     static char __initdata buf[128];
     char *str = buf;

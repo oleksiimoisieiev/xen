@@ -19,6 +19,7 @@
  *
  */
 
+#include <xen/alternative-call.h>
 #include <xen/errno.h>
 #include <xen/cpumask.h>
 #include <xen/types.h>
@@ -28,7 +29,7 @@
 #include <xen/sched.h>
 #include <xen/timer.h>
 #include <xen/trace.h>
-#include <acpi/cpufreq/cpufreq.h>
+#include <xen/cpufreq.h>
 #include <public/sysctl.h>
 
 struct cpufreq_driver __read_mostly cpufreq_driver;
@@ -221,9 +222,12 @@ int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
         if (freq > max_freq)
             max_freq = freq;
     }
+
+    /* Clarify second_max_freq which is highest non-turbo frequency */
     for (i=0; (table[i].frequency != CPUFREQ_TABLE_END); i++) {
         unsigned int freq = table[i].frequency;
-        if (freq == CPUFREQ_ENTRY_INVALID || freq == max_freq)
+        if ((freq == CPUFREQ_ENTRY_INVALID) ||
+            (table[i].flags & CPUFREQ_BOOST_FREQ))
             continue;
         if (freq > second_max_freq)
             second_max_freq = freq;
@@ -354,11 +358,22 @@ int cpufreq_frequency_table_target(struct cpufreq_policy *policy,
  *               GOVERNORS                                           *
  *********************************************************************/
 
+int __cpufreq_policy_set_owner(struct cpufreq_policy *policy,
+                               enum cpufreq_policy_owner owner)
+{
+    policy->owner = owner;
+    return 0;
+}
+
 int __cpufreq_driver_target(struct cpufreq_policy *policy,
                             unsigned int target_freq,
-                            unsigned int relation)
+                            unsigned int relation,
+                            enum cpufreq_policy_owner owner)
 {
     int retval = -EINVAL;
+
+    if ((policy->owner != owner) && (owner == OWNER_CPUFREQ))
+        return 0;
 
     if (cpu_online(policy->cpu) && cpufreq_driver.target)
     {
@@ -488,4 +503,13 @@ int __cpufreq_set_policy(struct cpufreq_policy *data,
     }
 
     return __cpufreq_governor(data, CPUFREQ_GOV_LIMITS);
+}
+
+/*
+ * cpuid   : cpuid to get current policy.
+ * policy  : return value.
+ */
+struct cpufreq_policy *__cpufreq_get_policy(unsigned int cpuid)
+{
+    return per_cpu(cpufreq_cpu_policy, cpuid);
 }

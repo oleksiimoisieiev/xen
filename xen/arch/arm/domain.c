@@ -38,6 +38,7 @@
 #include <asm/vfp.h>
 #include <asm/vgic.h>
 #include <asm/vtimer.h>
+#include <asm/vscmi.h>
 
 #include "vpci.h"
 #include "vuart.h"
@@ -599,6 +600,9 @@ int arch_vcpu_create(struct vcpu *v)
     if ( (rc = vcpu_vtimer_init(v)) != 0 )
         goto fail;
 
+    if ( (rc = vcpu_vscmi_init(v)) != 0 )
+        goto fail;
+
     /*
      * The workaround 2 (i.e SSBD mitigation) is enabled by default if
      * supported.
@@ -1029,6 +1033,9 @@ int domain_relinquish_resources(struct domain *d)
          * allocated via a DOMCTL call XEN_DOMCTL_vuart_op.
          */
         domain_vpl011_deinit(d);
+
+        /* Release vscmi resources */
+        domain_vscmi_free(d);
 
 #ifdef CONFIG_IOREQ_SERVER
         ioreq_server_destroy_all(d);
