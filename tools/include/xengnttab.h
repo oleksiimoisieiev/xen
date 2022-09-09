@@ -385,11 +385,19 @@ int xengnttab_dmabuf_imp_to_refs_v2(xengnttab_handle *xgt, uint32_t domid,
 int xengnttab_dmabuf_imp_release(xengnttab_handle *xgt, uint32_t fd);
 
 /*
- * This will close all references to mapped buffer, so it can be
- * released by the owner. This is only valid for buffers created with
- * IOCTL_GNTDEV_DMABUF_MAP_REFS_TO_BUF.
+ * This will release gntdev attachment to the provided buffer with file
+ * descriptor @fd, so it can be released by the owner. This is only valid
+ * for buffers created with IOCTL_GNTDEV_DMABUF_EXP_REFS_TO_BUF.
  */
 int xengnttab_dmabuf_map_release(xengnttab_handle *xgt, uint32_t fd);
+
+/*
+ * This will wait until gntdev release procedure is finished and buffer was
+ * released completely. This is only valid for buffers created with
+ * IOCTL_GNTDEV_DMABUF_EXP_REFS_TO_BUF.
+ */
+int xengnttab_dmabuf_map_wait_released(xengnttab_handle *xgt, uint32_t fd,
+        uint32_t wait_to_ms);
 
 /*
  * Grant Sharing Interface (allocating and granting pages to others)

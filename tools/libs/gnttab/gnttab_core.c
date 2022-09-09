@@ -191,6 +191,12 @@ int xengnttab_dmabuf_map_release(xengnttab_handle *xgt, uint32_t fd)
 {
     return osdep_gnttab_dmabuf_map_release(xgt, fd);
 }
+
+int xengnttab_dmabuf_map_wait_released(xengnttab_handle *xgt, uint32_t fd,
+        uint32_t wait_to_ms)
+{
+    return osdep_gnttab_dmabuf_map_wait_released(xgt, fd, wait_to_ms);
+}
 /*
  * Local variables:
  * mode: C

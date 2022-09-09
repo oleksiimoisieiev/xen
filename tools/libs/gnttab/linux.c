@@ -565,6 +565,21 @@ int osdep_gnttab_dmabuf_map_release(xengnttab_handle *xgt, uint32_t fd)
     return rc;
 }
 
+int osdep_gnttab_dmabuf_map_wait_released(xengnttab_handle *xgt, uint32_t fd,
+        uint32_t wait_to_ms)
+{
+    struct ioctl_gntdev_dmabuf_map_wait_released release;
+    int rc;
+
+    release.fd = fd;
+    release.wait_to_ms = wait_to_ms;
+
+    if ( (rc = ioctl(xgt->fd, IOCTL_GNTDEV_DMABUF_MAP_WAIT_RELEASED, &release)) )
+        GTERROR(xgt->logger, "ioctl DMABUF_MAP_WAIT_RELEASED failed");
+
+    return rc;
+}
+
 int osdep_gntshr_open(xengntshr_handle *xgs)
 {
     int fd = open(DEVXEN "gntalloc", O_RDWR);

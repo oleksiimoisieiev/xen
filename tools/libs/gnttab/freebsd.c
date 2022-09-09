@@ -364,6 +364,12 @@ int osdep_gnttab_dmabuf_map_release(xengnttab_handle *xgt, uint32_t fd)
     abort();
 }
 
+int osdep_gnttab_dmabuf_map_wait_released(xengnttab_handle *xgt, uint32_t fd,
+        uint32_t wait_to_ms)
+{
+    abort();
+}
+
 /*
  * Local variables:
  * mode: C

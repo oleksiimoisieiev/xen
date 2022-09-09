@@ -366,11 +366,25 @@ struct ioctl_gntdev_dmabuf_map_refs_to_buf {
  */
 #define IOCTL_GNTDEV_DMABUF_MAP_RELEASE \
        _IOC(_IOC_NONE, 'G', 16, \
-            sizeof(struct ioctl_gntdev_dmabuf_imp_release))
+            sizeof(struct ioctl_gntdev_dmabuf_map_release))
 struct ioctl_gntdev_dmabuf_map_release {
        /* IN parameters */
        uint32_t fd;
        uint32_t reserved;
+};
+
+/*
+ * This will wait until gntdev release procedure is finished and buffer was
+ * released completely. This is only valid for buffers created with
+ * IOCTL_GNTDEV_DMABUF_EXP_REFS_TO_BUF.
+ */
+#define IOCTL_GNTDEV_DMABUF_MAP_WAIT_RELEASED \
+	_IOC(_IOC_NONE, 'G', 17, \
+	     sizeof(struct ioctl_gntdev_dmabuf_map_wait_released))
+struct ioctl_gntdev_dmabuf_map_wait_released {
+	/* IN parameters */
+	uint32_t fd;
+	uint32_t wait_to_ms;
 };
 
 #endif /* __LINUX_PUBLIC_GNTDEV_H__ */
