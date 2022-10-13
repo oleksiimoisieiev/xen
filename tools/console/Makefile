@@ -13,7 +13,7 @@ LDLIBS_xenconsoled += $(UTIL_LIBS)
 LDLIBS_xenconsoled += -lrt
 CONSOLE_CFLAGS-$(CONFIG_ARM) = -DCONFIG_ARM
 
-BIN      = xenconsoled xenconsole
+BIN      = xenconsoled xenconsole gnt_test
 
 .PHONY: all
 all: $(BIN)
@@ -32,6 +32,11 @@ daemon/main.o: daemon/_paths.h
 daemon/io.o: CFLAGS += $(CFLAGS_libxenevtchn) $(CFLAGS_libxengnttab) $(CFLAGS_libxenforeignmemory) $(CONSOLE_CFLAGS-y)
 xenconsoled: $(patsubst %.c,%.o,$(wildcard daemon/*.c))
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS) $(LDLIBS_libxenevtchn) $(LDLIBS_libxengnttab) $(LDLIBS_libxenforeignmemory) $(LDLIBS_xenconsoled) $(APPEND_LDFLAGS)
+
+gnt.o: CFLAGS += $(CFLAGS_libxengnttab) $(CONSOLE_CFLAGS-y)
+
+gnt_test: gnt.o
+	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS) $(LDLIBS_libxengnttab) $(APPEND_LDFLAGS)
 
 client/main.o: client/_paths.h
 xenconsole: $(patsubst %.c,%.o,$(wildcard client/*.c))
