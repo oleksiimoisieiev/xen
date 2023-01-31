@@ -509,7 +509,8 @@ static int __init write_properties(struct domain *d, struct kernel_info *kinfo,
                  dt_property_name_is_equal(prop, "linux,uefi-mmap-start") ||
                  dt_property_name_is_equal(prop, "linux,uefi-mmap-size") ||
                  dt_property_name_is_equal(prop, "linux,uefi-mmap-desc-size") ||
-                 dt_property_name_is_equal(prop, "linux,uefi-mmap-desc-ver"))
+                 dt_property_name_is_equal(prop, "linux,uefi-mmap-desc-ver") ||
+                 dt_property_name_is_equal(prop, "xen,config") )
                 continue;
 
             if ( dt_property_name_is_equal(prop, "xen,dom0-bootargs") )
