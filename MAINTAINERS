@@ -529,6 +529,7 @@ SCI MEDIATORS
 R:	Oleksii Moisieiev <oleksii_moisieiev@epam.com>
 S:	Supported
 F:	xen/arch/arm/firmware/sci.c
+F:	xen/arch/arm/firmware/scmi-*.[ch]
 F:	xen/arch/arm/include/asm/firmware/sci.h
 
 SEABIOS UPSTREAM

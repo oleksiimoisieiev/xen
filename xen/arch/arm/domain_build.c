@@ -86,6 +86,37 @@ int __init parse_arch_dom0_param(const char *s, const char *e)
     return -EINVAL;
 }
 
+/* SCMI agent ID for dom0 obtained from xen,sci container */
+#define SCMI_AGENT_ID_INVALID UINT8_MAX
+
+static uint8_t __init get_dom0_scmi_agent_id(void)
+{
+    const struct dt_device_node *config_node;
+    u32 val;
+    const struct dt_property *prop;
+
+    config_node = dt_find_compatible_node(NULL, NULL, "xen,sci");
+    if ( !config_node )
+        return SCMI_AGENT_ID_INVALID;
+
+    prop = dt_find_property(config_node, "xen,dom0-sci-agent-id", NULL);
+    if ( !prop )
+        return SCMI_AGENT_ID_INVALID;
+
+    if ( !dt_property_read_u32(config_node, "xen,dom0-sci-agent-id", &val) )
+        return SCMI_AGENT_ID_INVALID;
+
+    if ( val >= SCMI_AGENT_ID_INVALID )
+    {
+         printk(XENLOG_WARNING
+             "Invalid xen,dom0-sci-agent-id=%u, SCMI disabled for Dom0\n",
+             val);
+        return SCMI_AGENT_ID_INVALID;
+    }
+
+    return val;
+}
+
 /* Override macros from asm/page.h to make them work with mfn_t */
 #undef virt_to_mfn
 #define virt_to_mfn(va) _mfn(__virt_to_mfn(va))
@@ -1459,6 +1490,7 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         DT_MATCH_TYPE("memory"),
         /* The memory mapped timer is not supported by Xen. */
         DT_MATCH_COMPATIBLE("arm,armv7-timer-mem"),
+        DT_MATCH_COMPATIBLE("xen,sci"),
         { /* sentinel */ },
     };
     static const struct dt_device_match timer_matches[] __initconst =
@@ -1946,6 +1978,13 @@ void __init create_dom0(void)
     dom0_cfg.arch.nr_spis = vgic_def_nr_spis();
     dom0_cfg.arch.tee_type = tee_get_type();
     dom0_cfg.max_vcpus = dom0_max_vcpus();
+
+    /* Set up SCMI agent ID if provided in the xen,sci container */
+    dom0_cfg.arch.arm_sci_agent_id = get_dom0_scmi_agent_id();
+    dom0_cfg.arch.arm_sci_type = (dom0_cfg.arch.arm_sci_agent_id !=
+                                  SCMI_AGENT_ID_INVALID) ?
+                                 XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC_MA :
+                                 XEN_DOMCTL_CONFIG_ARM_SCI_NONE;
 
     if ( iommu_enabled )
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;

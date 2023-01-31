@@ -322,6 +322,21 @@ with the following properties:
     Should be used together with scmi-smc-passthrough Xen command line
     option.
 
+    - "scmi_smc_multiagent"
+
+    Enables ARM SCMI SMC multi-agent support for the guest by enabling SCMI over
+    SMC calls forwarding from domain to the EL3 firmware (like ARM
+    Trusted Firmware-A) with a multi SCMI OSPM agent support.
+    The SCMI agent_id should be specified for the guest with "xen,sci-agent-id"
+    property.
+
+- "xen,sci-agent-id"
+
+    Specifies ARM SCMI agent id for the guest. This option is mandatory if the
+    SCMI SMC "scmi_smc_multiagent" support is enabled for the guest. The agent ids
+    of guest must be unique and in the range [0..254]. UINT8_MAX (255) is
+    treated as invalid.
+
 Under the "xen,domain" compatible node, one or more sub-nodes are present
 for the DomU kernel and ramdisk.
 
@@ -824,3 +839,185 @@ The automatically allocated static shared memory will get mapped at
 0x80000000 in DomU1 guest physical address space, and at 0x90000000 in DomU2
 guest physical address space. DomU1 is explicitly defined as the owner domain,
 and DomU2 is the borrower domain.
+
+SCMI SMC multi-agent support
+============================
+
+For enabling the ARM SCMI SMC multi-agent support (enabled by CONFIG_SCMI_SMC_MA)
+the Xen specific SCMI Agent's configuration shall be provided in the Host DT
+according to the SCMI compliant EL3 Firmware specification with ARM SMC/HVC
+transport. The SCMI configuration must live under the Xen SCMI container
+"xen,sci" beneath "/chosen" (for example "/chosen/xen/xen_scmi_config/scmi"). The
+Xen SCMI mediator will bind only to the "arm,scmi-smc" node that is a child of
+this "xen,sci" container; any other "arm,scmi-smc" nodes (for example under
+"/firmware") are ignored to avoid stealing the host's SCMI OSPM instance.
+
+- scmi-secondary-agents
+
+    Defines a set of SCMI agents configuration supported by SCMI EL3 FW and
+    available for Xen. Each Agent defined as triple consisting of:
+    SMC/HVC function_id assigned for the agent transport ("arm,smc-id"),
+    phandle to SCMI SHM assigned for the agent transport ("arm,scmi-shmem"),
+    SCMI agent_id (optional) if not set - Xen will determine Agent ID for
+    each provided channel using BASE_DISCOVER_AGENT message.
+
+- xen,dom0-sci-agent-id
+
+    Optional. Specifies the Dom0/hwdom SCMI agent_id inside the ``xen,sci``
+    container. When provided, Dom0 will be configured for SCMI multi-agent
+    support; when omitted, SCMI remains disabled for Dom0. The value must
+    match the ``func_id`` and shmem pairing that EL3 firmware exposes for
+    Dom0 (for example via ``/firmware/scmi``).
+
+As an example:
+
+/ {
+    chosen {
+        xen {
+            ranges;
+            xen_scmi_config {
+                compatible = "xen,sci";
+                #address-cells = <2>;
+                #size-cells = <2>;
+                ranges;
+
+                scmi_shm_0: sram@47ff0000 {
+                    compatible = "arm,scmi-shmem";
+                    reg = <0x0 0x47ff0000 0x0 0x1000>;
+                };
+
+                /* Xen SCMI management channel */
+                scmi_shm_1: sram@47ff1000 {
+                    compatible = "arm,scmi-shmem";
+                    reg = <0x0 0x47ff1000 0x0 0x1000>;
+                };
+
+                scmi_shm_2: sram@47ff2000 {
+                    compatible = "arm,scmi-shmem";
+                    reg = <0x0 0x47ff2000 0x0 0x1000>;
+                };
+
+                scmi_shm_3: sram@47ff3000 {
+                    compatible = "arm,scmi-shmem";
+                    reg = <0x0 0x47ff3000 0x0 0x1000>;
+                };
+
+                xen,dom0-sci-agent-id = <0>; <--- dom0 agent id
+                scmi-secondary-agents = <
+                    0x82000002 &scmi_shm_0 0
+                    0x82000004 &scmi_shm_2 2
+                    0x82000005 &scmi_shm_3 3>; <--- func_id, shmem, agent_id
+                #scmi-secondary-agents-cells = <3>;
+
+                scmi_xen: scmi {
+                    compatible = "arm,scmi-smc";
+                    arm,smc-id = <0x82000003>; <--- Xen management agent func_id
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+                    #access-controller-cells = <1>;
+                    shmem = <&scmi_shm_1>; <--- Xen management agent shmem
+                };
+            };
+        };
+    };
+};
+
+Note: This example keeps the Host DT unchanged for Dom0 and baremetal Linux
+by using func_id 0x82000002 / shmem 0x47ff0000 for Dom0, while Xen uses a
+separate privileged channel func_id 0x82000003 / shmem 0x47ff1000. EL3
+firmware enforces permissions per agent_id, so there is no conflict between
+Dom0 and Xen channels.
+
+- #scmi-secondary-agents-cells
+
+    Defines whether Agent_id is set in the "scmi-secondary-agents" property.
+    Possible values are: 2, 3.
+    When set to 3 (the default), expect agent_id to be present in the secondary
+    agents list.
+    When set to 2, agent_id will be discovered for each channel using
+    BASE_DISCOVER_AGENT message.
+
+
+Example:
+
+/ {
+    chosen {
+        xen {
+            ranges;
+            xen_scmi_config {
+                compatible = "xen,sci";
+                #address-cells = <2>;
+                #size-cells = <2>;
+                ranges;
+
+                /* Shared memory nodes as in the previous example */
+
+                scmi-secondary-agents = <
+                    0x82000002 &scmi_shm_0
+                    0x82000004 &scmi_shm_2
+                    0x82000005 &scmi_shm_3
+                    0x82000006 &scmi_shm_4>;
+                #scmi-secondary-agents-cells = <2>;
+
+                scmi_xen: scmi {
+                    compatible = "arm,scmi-smc";
+                    arm,smc-id = <0x82000003>; <--- Xen management agent func_id
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+                    #access-controller-cells = <1>;
+                    shmem = <&scmi_shm_1>; <--- Xen management agent shmem
+                };
+            };
+        };
+    };
+};
+
+Dom0less example (multi-agent)
+-------------------------------
+
+Below is a minimal dom0less configuration showing how to enable SCMI SMC
+multi-agent for a pre-defined guest domain using xen,sci_type and
+xen,sci-agent-id, together with the Xen SCMI container:
+
+chosen {
+    xen {
+        ranges;
+        xen_scmi_config {
+            compatible = "xen,sci";
+            #address-cells = <2>;
+            #size-cells = <2>;
+            ranges;
+
+            /* Xen management channel shared memory */
+            scmi_shm_1: sram@47ff1000 {
+                compatible = "arm,scmi-shmem";
+                reg = <0x0 0x47ff1000 0x0 0x1000>;
+            };
+
+            scmi_shm_domu: sram@47ff2000 {
+                compatible = "arm,scmi-shmem";
+                reg = <0x0 0x47ff2000 0x0 0x1000>;
+            };
+
+            scmi-secondary-agents = <
+                0x82000004 &scmi_shm_domu 2>;
+            #scmi-secondary-agents-cells = <3>;
+
+            scmi_xen: scmi {
+                compatible = "arm,scmi-smc";
+                arm,smc-id = <0x82000003>;
+                #address-cells = <1>;
+                #size-cells = <0>;
+                #access-controller-cells = <1>;
+                shmem = <&scmi_shm_1>;
+            };
+        };
+    };
+
+    xen,domain@1 {
+        compatible = "xen,domain";
+        xen,sci_type = "scmi_smc_multiagent";
+        xen,sci-agent-id = <2>;
+        /* Additional domain properties (memory, cpus, kernels, etc.) */
+    };
+};
