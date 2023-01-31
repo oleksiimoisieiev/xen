@@ -240,6 +240,10 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     case LIBXL_ARM_SCI_TYPE_SCMI_SMC:
         config->arch.arm_sci_type = XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC;
         break;
+    case LIBXL_ARM_SCI_TYPE_SCMI_SMC_MULTIAGENT:
+        config->arch.arm_sci_type = XEN_DOMCTL_CONFIG_ARM_SCI_SCMI_SMC_MA;
+        config->arch.arm_sci_agent_id = d_config->b_info.arch_arm.arm_sci.agent_id;
+        break;
     default:
         LOG(ERROR, "Unknown ARM_SCI type %d",
             d_config->b_info.arch_arm.arm_sci.type);
@@ -1835,6 +1839,15 @@ int libxl__arch_domain_build_info_setdefault(libxl__gc *gc,
                 b_info->arch_arm.sve_vl);
             return ERROR_FAIL;
         }
+    }
+
+    /* Sanitise ARM SCI agent_id parameter */
+    if (b_info->arch_arm.arm_sci.type == LIBXL_ARM_SCI_TYPE_SCMI_SMC_MULTIAGENT &&
+        b_info->arch_arm.arm_sci.agent_id >= UINT8_MAX) {
+        LOG(ERROR,
+            "Invalid ARM SCI agent_id: %u. Valid range is [0..254]",
+            b_info->arch_arm.arm_sci.agent_id);
+        return ERROR_FAIL;
     }
 
     if (b_info->type != LIBXL_DOMAIN_TYPE_PV)
