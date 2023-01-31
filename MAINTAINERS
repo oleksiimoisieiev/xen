@@ -514,6 +514,10 @@ R:	Oleksii Moisieiev <oleksii_moisieiev@epam.com>
 S:	Supported
 F:	xen/arch/arm/firmware/sci.c
 F:	xen/arch/arm/include/asm/firmware/sci.h
+F:	xen/arch/arm/firmware/scmi-smc-multiagent.c
+F:	xen/arch/arm/firmware/scmi-shmem.c
+F:	xen/arch/arm/firmware/scmi-shmem.h
+F:	xen/arch/arm/firmware/scmi-proto.h
 
 SEABIOS UPSTREAM
 M:	Wei Liu <wl@xen.org>
