@@ -38,6 +38,7 @@
 #include <xen/irq.h>
 #include <xen/grant_table.h>
 #include <asm/grant_table.h>
+#include <xen/scmi_dt_maker.h>
 #include <xen/serial.h>
 
 static unsigned int __initdata opt_dom0_max_vcpus;
@@ -1613,7 +1614,7 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         DT_MATCH_TYPE("memory"),
         /* The memory mapped timer is not supported by Xen. */
         DT_MATCH_COMPATIBLE("arm,armv7-timer-mem"),
-        /* SCPI shared memory is handled by Xen */
+        /* SCMI shared memory is handled by Xen */
         DT_MATCH_COMPATIBLE("arm,scmi-shmem"),
         { /* sentinel */ },
     };
@@ -1627,6 +1628,11 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         DT_MATCH_PATH("/psci"),
         DT_MATCH_PATH("/memory"),
         DT_MATCH_PATH("/hypervisor"),
+        { /* sentinel */ },
+    };
+    static const struct dt_device_match scmi_matches[] __initconst =
+    {
+        DT_MATCH_PATH("/firmware/scmi"),
         { /* sentinel */ },
     };
     struct dt_device_node *child;
@@ -1741,6 +1747,11 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
          */
         evtchn_allocate(d);
 
+#ifdef CONFIG_SCMI_SMC
+        res = scmi_dt_make_shmem_node(kinfo);
+        if ( res )
+            return res;
+#endif
         /*
          * The hypervisor node should always be created after all nodes
          * from the host DT have been parsed.
@@ -1779,6 +1790,15 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
             return res;
     }
 
+#ifdef CONFIG_SCMI_SMC
+    if ( dt_match_node(scmi_matches, node) )
+    {
+        res = scmi_dt_set_phandle(kinfo, dt_node_full_name(node));
+        if ( res )
+            return res;
+    }
+#endif
+
     res = fdt_end_node(kinfo->fdt);
 
     return res;
@@ -1794,6 +1814,8 @@ static int __init prepare_dtb_hwdom(struct domain *d, struct kernel_info *kinfo)
     ASSERT(dt_host && (dt_host->sibling == NULL));
 
     kinfo->phandle_gic = dt_interrupt_controller->phandle;
+    kinfo->phandle_sci_shmem = GUEST_PHANDLE_SCMI;
+
     fdt = device_tree_flattened;
 
     new_size = fdt_totalsize(fdt) + DOM0_FDT_EXTRA_SIZE;
@@ -2092,9 +2114,11 @@ static int __init construct_dom0(struct domain *d)
     if ( rc < 0 )
         return rc;
 
+#if CONFIG_ARM_SCI
     rc = sci_domain_init(d, sci_get_type(), NULL);
     if ( rc < 0 )
         return rc;
+#endif
 
     if ( acpi_disabled )
     {
