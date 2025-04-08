@@ -29,6 +29,9 @@
 #include <xen/xvmalloc.h>
 
 #include <asm/current.h>
+#ifdef CONFIG_ARM
+#include <asm/firmware/sci.h>
+#endif
 #include <asm/irq.h>
 #include <asm/page.h>
 #include <asm/p2m.h>
@@ -833,6 +836,18 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
     case XEN_DOMCTL_test_assign_device:
     case XEN_DOMCTL_deassign_device:
     case XEN_DOMCTL_get_device_group:
+        /*
+         * Chain SCI DT handling ahead of the IOMMU path so an SCI mediator
+         * can authorise access-controlled DT devices. Unhandled cases report
+         * -ENXIO, which is ignored. Any other SCI error aborts before the
+         * IOMMU path runs.
+         */
+#ifdef CONFIG_ARM_SCI
+        ret = sci_do_domctl(op, d, u_domctl);
+        if ( ret < 0 && ret != -ENXIO )
+            break;
+#endif
+
         ret = iommu_do_domctl(op, d, u_domctl);
         break;
 

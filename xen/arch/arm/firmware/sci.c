@@ -126,6 +126,42 @@ int sci_assign_dt_device(struct domain *d, struct dt_device_node *dev)
     return 0;
 }
 
+int sci_do_domctl(struct xen_domctl *domctl, struct domain *d,
+                  XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
+{
+    struct dt_device_node *dev;
+    int ret = 0;
+
+    switch ( domctl->cmd )
+    {
+    case XEN_DOMCTL_assign_device:
+        ret = -ENXIO;
+        if ( domctl->u.assign_device.dev != XEN_DOMCTL_DEV_DT )
+            break;
+
+        if ( !cur_mediator )
+            break;
+
+        if ( !cur_mediator->assign_dt_device )
+            break;
+
+        ret = dt_find_node_by_gpath(domctl->u.assign_device.u.dt.path,
+                                    domctl->u.assign_device.u.dt.size, &dev);
+        if ( ret )
+            return ret;
+
+        ret = sci_assign_dt_device(d, dev);
+
+        break;
+
+    default:
+        /* do not fail here as call is chained with iommu handling */
+        break;
+    }
+
+    return ret;
+}
+
 static int __init sci_init(void)
 {
     struct dt_device_node *np;
