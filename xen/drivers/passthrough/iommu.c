@@ -632,7 +632,7 @@ int iommu_do_domctl(
     int ret = -ENODEV;
 
     if ( !(d ? is_iommu_enabled(d) : iommu_enabled) )
-        return -EOPNOTSUPP;
+        return -ENXIO;
 
 #ifdef CONFIG_HAS_PCI
     ret = iommu_do_pci_domctl(domctl, d, u_domctl);
