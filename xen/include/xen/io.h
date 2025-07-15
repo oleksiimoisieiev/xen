@@ -67,4 +67,14 @@ static inline bool write_mmio(volatile void __iomem *mem, unsigned long data,
     return true;
 }
 
+/*
+ * Copy between regular memory and MMIO space.  Implementations are
+ * architecture-specific and must use appropriate MMIO accessors for
+ * their memory and I/O models.
+ */
+void memcpy_fromio(void *to, const volatile void __iomem *from,
+                   size_t count);
+void memcpy_toio(volatile void __iomem *to, const void *from,
+                 size_t count);
+
 #endif /* XEN_IO_H */

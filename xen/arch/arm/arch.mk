@@ -2,6 +2,7 @@
 # arm-specific definitions
 
 ARCH_LIBS-y += arch/arm/$(ARCH)/lib/lib.a
+ARCH_LIBS-y += arch/arm/lib/lib.a
 
 $(call cc-options-add,CFLAGS,CC,$(EMBEDDED_EXTRA_CFLAGS))
 $(call cc-option-add,CFLAGS,CC,-Wnested-externs)
