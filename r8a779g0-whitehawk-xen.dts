@@ -1005,10 +1005,10 @@
 			compatible = "renesas,i2c-r8a779g0\0renesas,rcar-gen4-i2c";
 			reg = <0x00 0xe6508000 0x00 0x40>;
 			interrupts = <0x00 0x263 0x04>;
-			clocks = <&scmi_clocks 0x1>;
+			clocks = <&scmi_clock 0x1>;
 			power-domains = <&scmi_power 0x1>;
 			resets = <&scmi_reset 0x1>;
-			access-controllers = <&scmi_xen 0>;
+		//	access-controllers = <&scmi_xen 0>;
 			dmas = <0x16 0x93 0x16 0x92 0x17 0x93 0x17 0x92>;
 			dma-names = "tx\0rx\0tx\0rx";
 			i2c-scl-internal-delay-ns = <0x6e>;
@@ -6138,78 +6138,12 @@
 		compatible = "arm,armv8-timer";
 		interrupts-extended = <0x0b 0x01 0x0d 0xf08 0x0b 0x01 0x0e 0xf08 0x0b 0x01 0x0b 0xf08 0x0b 0x01 0x0a 0xf08>;
 	};
-	scmi_shm_0: sram@47ff0000 {
-		compatible = "arm,scmi-shmem";
-		reg = <0x0 0x47ff0000 0x0 0x1000>;
-	};
 
 	chosen {
 		stdout-path = "serial0:921600n8";
-		bootargs = "dom0_mem=320M console=dtuart dtuart=/soc/serial@e6540000 dom0_max_vcpus=2 loglvl=all xsm=flask flask=permissive bootscrub=0 console_timestamps=boot dom0_scmi_agent_id=0";
+		bootargs = "dom0_mem=320M console=dtuart dtuart=/soc/serial@e6540000 dom0_max_vcpus=2 loglvl=all xsm=flask flask=permissive bootscrub=0 console_timestamps=boot scmi_smc_passthrough";
 		xen,dom0-bootargs = "root=/dev/ram0 console=hvc0 ignore_loglevel clk_ignore_unused";
-		ranges;
 		
-		xen,config {
-			#address-cells = <0x02>;
-			#size-cells = <0x02>;
-			ranges;
-			scmi-secondary-agents = <
-				0x82000002 &scmi_shm_0
-				0x82000004 &scmi_shm_2
-				0x82000005 &scmi_shm_3
-				0x82000006 &scmi_shm_4
-				0x82000007 &scmi_shm_5
-				0x82000008 &scmi_shm_6
-				0x82000009 &scmi_shm_7
-				>;
-			#scmi-secondary-agents-cells = <2>;
-
-			scmi_shm_2: sram@47ff2000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff2000 0x0 0x1000>;
-				xen,passthrough;
-			};
-			scmi_shm_3: sram@47ff3000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff3000 0x0 0x1000>;
-				xen,passthrough;
-			};
-			scmi_shm_4: sram@47ff4000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff4000 0x0 0x1000>;
-				xen,passthrough;
-			};
-			scmi_shm_5: sram@47ff5000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff5000 0x0 0x1000>;
-				xen,passthrough;
-			};
-			scmi_shm_6: sram@47ff6000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff6000 0x0 0x1000>;
-				xen,passthrough;
-			};
-			scmi_shm_7: sram@47ff7000 {
-				compatible = "arm,scmi-shmem";
-				reg = <0x0 0x47ff7000 0x0 0x1000>;
-				xen,passthrough;
-			};
-
-			// Xen SCMI management channel
-        	scmi_shm_1: sram@47ff1000 {
-                compatible = "arm,scmi-shmem";
-                reg = <0x0 0x47ff1000 0x0 0x1000>;
-			};
-
-			scmi_xen: scmi {
-				compatible = "arm,scmi-smc";
-				arm,smc-id = <0x82000003>;
-				#address-cells = <1>;
-				#size-cells = <0>;
-				#access-controller-cells = <1>;
-				shmem = <&scmi_shm_1>;
-			};
-		};
 
 		modules {
 			#address-cells = <0x02>;
@@ -6290,30 +6224,35 @@
 		reg = <0x00 0x7ff00000 0x00 0x1000>;
 	};
 
-	firmware {
+scmi_shm_0: sram@47ff0000 {
+		compatible = "arm,scmi-shmem";
+		reg = <0x0 0x47ff0000 0x0 0x1000>;
+	};
 
-		scmi {
+	firmware {
+		scmi: scmi {
 			compatible = "arm,scmi-smc";
 			arm,smc-id = <0x82000002>;
-			#address-cells = <0x01>;
-			#size-cells = <0x00>;
-			#access-controller-cells = <0x01>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			#access-controller-cells = <1>;
 			shmem = <&scmi_shm_0>;
 
 			scmi_reset: protocol@16 {
 				reg = <0x16>;
-				#reset-cells = <0x01>;
+				#reset-cells = <1>;
 			};
 
 			scmi_power: protocol@11 {
 				reg = <0x11>;
-				#power-domain-cells = <0x01>;
+				#power-domain-cells = <1>;
 			};
 
-			scmi_clocks: protocol@14 {
+			scmi_clock: protocol@14 {
 				reg = <0x14>;
-				#clock-cells = <0x01>;
+				#clock-cells = <1>;
 			};
 		};
 	};
+
 };
