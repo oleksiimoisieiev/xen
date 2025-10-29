@@ -10357,13 +10357,6 @@ fi
 
 fi
 
-	if test "x$SYSTEMD_SLEEP_DIR" = x
-then :
-
-	    SYSTEMD_SLEEP_DIR="\$(prefix)/lib/systemd/system-sleep/"
-
-fi
-
 
 else $as_nop
 
