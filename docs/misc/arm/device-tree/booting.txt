@@ -322,7 +322,7 @@ with the following properties:
     Should be used together with scmi-smc-passthrough Xen command line
     option.
 
-    - "scmi_smc_multiagent"
+- "scmi_smc_multiagent"
 
     Enables ARM SCMI SMC multi-agent support for the guest by enabling SCMI over
     SMC calls forwarding from domain to the EL3 firmware (like ARM
