@@ -6145,7 +6145,7 @@
 
 	chosen {
 		stdout-path = "serial0:921600n8";
-		bootargs = "dom0_mem=320M console=dtuart dtuart=/soc/serial@e6540000 dom0_max_vcpus=2 loglvl=all xsm=flask flask=permissive bootscrub=0 console_timestamps=boot dom0_scmi_agent_id=0";
+		bootargs = "dom0_mem=320M console=dtuart dtuart=/soc/serial@e6540000 dom0_max_vcpus=2 loglvl=all xsm=flask flask=permissive bootscrub=0 console_timestamps=boot dom0=sci-agent-id=0";
 		xen,dom0-bootargs = "root=/dev/ram0 console=hvc0 ignore_loglevel clk_ignore_unused";
 		ranges;
 		
